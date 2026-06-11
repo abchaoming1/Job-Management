@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job-Management</title>
+    <meta
+      name="description"
+      content="Job-Management personal workspace for projects, channels, and knowledge records."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主内容</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div>
+            <p class="eyebrow">Raymond workspace</p>
+            <h1>Job-Management</h1>
+          </div>
+        </div>
+
+        <nav class="module-nav" id="moduleNav" aria-label="模块"></nav>
+
+        <section class="sidebar-panel" aria-label="今日节奏">
+          <div class="panel-title">
+            <i data-lucide="activity" aria-hidden="true"></i>
+            <span>今日节奏</span>
+          </div>
+          <div class="pulse-stack" id="pulseStack"></div>
+        </section>
+      </aside>
+
+      <main class="workspace" id="main">
+        <header class="topbar">
+          <div class="topbar-title">
+            <p class="eyebrow" id="todayStamp"></p>
+            <h2 id="pageTitle">总览</h2>
+          </div>
+
+          <div class="topbar-actions">
+            <label class="search-field" for="globalSearch">
+              <i data-lucide="search" aria-hidden="true"></i>
+              <span class="sr-only">全局搜索</span>
+              <input id="globalSearch" type="search" placeholder="搜索项目、渠道、SKU、邮件主题" />
+            </label>
+            <button class="icon-button" id="resetDataBtn" type="button" title="恢复示例数据" aria-label="恢复示例数据">
+              <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+            </button>
+            <button class="primary-button" id="openCreateBtn" type="button">
+              <i data-lucide="plus" aria-hidden="true"></i>
+              <span>新增</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="overview-strip" id="overviewStrip" aria-label="关键指标"></section>
+
+        <section class="content-grid">
+          <section class="work-panel" id="contentPanel" aria-live="polite"></section>
+          <aside class="detail-panel" id="detailPanel" aria-label="详情"></aside>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="record-dialog" id="recordDialog">
+      <form method="dialog" class="dialog-box" id="recordForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow" id="dialogEyebrow">新增记录</p>
+            <h3 id="dialogTitle">新增</h3>
+          </div>
+          <button class="icon-button" value="cancel" type="button" id="closeDialogBtn" title="关闭" aria-label="关闭">
+            <i data-lucide="x" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="form-grid" id="formFields"></div>
+        <div class="dialog-actions">
+          <button class="ghost-button danger" id="deleteRecordBtn" type="button">
+            <i data-lucide="trash-2" aria-hidden="true"></i>
+            <span>删除</span>
+          </button>
+          <div class="dialog-action-group">
+            <button class="ghost-button" value="cancel" type="button" id="cancelDialogBtn">取消</button>
+            <button class="primary-button" value="default" type="submit">
+              <i data-lucide="save" aria-hidden="true"></i>
+              <span>保存</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

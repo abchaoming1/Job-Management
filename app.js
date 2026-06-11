@@ -52,10 +52,10 @@ const moduleLinks = {
     {
       module: "knowledge",
       title: "Everyday-Records",
-      caption: "知识与信息管理仓库",
-      url: "https://github.com/abchaoming1/Everyday-Records",
+      caption: "知识与信息管理网页",
+      url: "https://abchaoming1.github.io/Everyday-Records/",
       icon: "book-marked",
-      badge: "GitHub",
+      badge: "Pages",
     },
   ],
   projects: [
@@ -90,10 +90,10 @@ const moduleLinks = {
     {
       module: "knowledge",
       title: "Everyday-Records",
-      caption: "每日知识与信息记录仓库",
-      url: "https://github.com/abchaoming1/Everyday-Records",
+      caption: "每日知识与信息记录网页",
+      url: "https://abchaoming1.github.io/Everyday-Records/",
       icon: "book-marked",
-      badge: "GitHub",
+      badge: "Pages",
     },
   ],
 };

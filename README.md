@@ -6,6 +6,13 @@
 - 渠道管理
 - 知识与信息管理
 
+## 模块入口
+
+- 项目管理：[本地项目管理页](http://127.0.0.1:8766/)
+- 渠道管理：[NATM 渠道](https://abchaoming1.github.io/NATM/#summarySection)
+- 渠道管理：[电视购物 GMA](https://abchaoming1.github.io/GMA/)
+- 知识与信息管理：[Everyday-Records](https://github.com/abchaoming1/Everyday-Records)
+
 ## 使用
 
 直接打开 `index.html` 即可使用。数据会保存在当前浏览器的 `localStorage` 中。
@@ -14,7 +21,7 @@
 
 - `index.html`: 页面结构
 - `styles.css`: 视觉系统与响应式布局
-- `app.js`: 数据、筛选、CRUD、本地持久化
+- `app.js`: 入口链接、数据、筛选、CRUD、本地持久化
 - `design-system/MASTER.md`: 设计系统与验收标准
 
 ## GitHub Pages

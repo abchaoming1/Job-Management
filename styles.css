@@ -580,6 +580,99 @@ h3 {
   gap: 12px;
 }
 
+.module-link-section {
+  margin-bottom: 16px;
+}
+
+.link-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.link-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 12px;
+  min-height: 96px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(238, 242, 237, 0.82));
+  color: var(--ink);
+  padding: 14px;
+  text-decoration: none;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.link-card:hover {
+  border-color: var(--primary);
+  box-shadow: 5px 5px 0 rgba(15, 118, 110, 0.14);
+  transform: translateY(-1px);
+}
+
+.link-card:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.28);
+  outline-offset: 2px;
+}
+
+.link-card-icon,
+.link-card-action {
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+}
+
+.link-card-icon {
+  width: 48px;
+  height: 48px;
+  background: var(--surface-2);
+  color: var(--primary-dark);
+}
+
+.link-card-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.link-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.link-card-kicker {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.link-card-copy strong {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.link-card-copy span:last-child {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.link-card-action {
+  width: 34px;
+  height: 34px;
+  background: var(--surface);
+  color: var(--primary-dark);
+}
+
+.link-card-action svg {
+  width: 17px;
+  height: 17px;
+}
+
 .record-card {
   position: relative;
   min-height: 210px;
@@ -1111,6 +1204,7 @@ details.original-text p {
   }
 
   .grid-list,
+  .link-card-grid,
   .map-board {
     grid-template-columns: 1fr;
   }
@@ -1154,6 +1248,7 @@ details.original-text p {
 
   .module-nav,
   .overview-strip,
+  .link-card-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }

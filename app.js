@@ -23,6 +23,81 @@ const modules = {
   },
 };
 
+const moduleLinks = {
+  overview: [
+    {
+      module: "projects",
+      title: "项目管理主控台",
+      caption: "打开本地项目管理页",
+      url: "http://127.0.0.1:8766/",
+      icon: "monitor-up",
+      badge: "Local",
+    },
+    {
+      module: "channels",
+      title: "NATM 渠道看板",
+      caption: "进入 NATM summarySection",
+      url: "https://abchaoming1.github.io/NATM/#summarySection",
+      icon: "chart-no-axes-combined",
+      badge: "NATM",
+    },
+    {
+      module: "channels",
+      title: "电视购物渠道",
+      caption: "进入 GMA 工作页",
+      url: "https://abchaoming1.github.io/GMA/",
+      icon: "tv",
+      badge: "GMA",
+    },
+    {
+      module: "knowledge",
+      title: "Everyday-Records",
+      caption: "知识与信息管理仓库",
+      url: "https://github.com/abchaoming1/Everyday-Records",
+      icon: "book-marked",
+      badge: "GitHub",
+    },
+  ],
+  projects: [
+    {
+      module: "projects",
+      title: "项目管理主控台",
+      caption: "主要项目入口：http://127.0.0.1:8766/",
+      url: "http://127.0.0.1:8766/",
+      icon: "monitor-up",
+      badge: "Local",
+    },
+  ],
+  channels: [
+    {
+      module: "channels",
+      title: "NATM 渠道",
+      caption: "NFM / Abt / BSM / RCW 渠道汇总",
+      url: "https://abchaoming1.github.io/NATM/#summarySection",
+      icon: "chart-no-axes-combined",
+      badge: "NATM",
+    },
+    {
+      module: "channels",
+      title: "电视购物渠道",
+      caption: "GMA TV shopping 工作台",
+      url: "https://abchaoming1.github.io/GMA/",
+      icon: "tv",
+      badge: "GMA",
+    },
+  ],
+  knowledge: [
+    {
+      module: "knowledge",
+      title: "Everyday-Records",
+      caption: "每日知识与信息记录仓库",
+      url: "https://github.com/abchaoming1/Everyday-Records",
+      icon: "book-marked",
+      badge: "GitHub",
+    },
+  ],
+};
+
 const optionSets = {
   projectStatus: ["进行中", "等待他人", "已暂停", "已完成", "有风险"],
   projectPriority: ["P0", "P1", "P2", "P3"],
@@ -519,6 +594,8 @@ function renderOverview() {
       </button>
     </div>
 
+    ${renderModuleLinks("overview")}
+
     <div class="map-board">
       <div class="focus-lane" aria-label="模块流转图">
         ${laneNode("folder-kanban", "项目管理", `${state.projects.filter((item) => item.status !== "已完成").length} 个开放项目`)}
@@ -546,6 +623,32 @@ function laneNode(icon, label, value) {
   `;
 }
 
+function renderModuleLinks(module) {
+  const links = moduleLinks[module] || [];
+  if (!links.length) return "";
+  return `
+    <section class="module-link-section" aria-label="${escapeAttr(modules[module]?.label || "模块入口")}">
+      <div class="link-card-grid">
+        ${links.map(renderLinkCard).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderLinkCard(link) {
+  return `
+    <a class="link-card link-card-${link.module}" href="${escapeAttr(link.url)}" target="_blank" rel="noopener noreferrer">
+      <span class="link-card-icon"><i data-lucide="${link.icon}" aria-hidden="true"></i></span>
+      <span class="link-card-copy">
+        <span class="link-card-kicker">${escapeHTML(link.badge)}</span>
+        <strong>${escapeHTML(link.title)}</strong>
+        <span>${escapeHTML(link.caption)}</span>
+      </span>
+      <span class="link-card-action" aria-hidden="true"><i data-lucide="arrow-up-right"></i></span>
+    </a>
+  `;
+}
+
 function renderTaskItem(item) {
   return `
     <button class="task-item module-button" type="button" data-open="${item.module}:${item.id}">
@@ -563,6 +666,7 @@ function renderProjects() {
   const items = filterItems(state.projects, "projects");
   elements.contentPanel.innerHTML = `
     ${moduleHead("项目推进表", "跟踪状态、优先级、进度、下一步动作和阻塞点。", "projects")}
+    ${renderModuleLinks("projects")}
     ${moduleToolbar("projects")}
     ${
       state.viewMode.projects === "cards"
@@ -629,6 +733,7 @@ function renderChannels() {
 
   elements.contentPanel.innerHTML = `
     ${moduleHead("渠道作战表", "按渠道聚合待处理、等待回复、风险事项和下一步动作。", "channels")}
+    ${renderModuleLinks("channels")}
     ${moduleToolbar("channels")}
     <div class="channel-group">
       ${
@@ -678,6 +783,7 @@ function renderKnowledge() {
 
   elements.contentPanel.innerHTML = `
     ${moduleHead("知识与信息台", "将每日 docx、邮件 JSON、网页摘要沉淀为可检索记录。", "knowledge")}
+    ${renderModuleLinks("knowledge")}
     ${moduleToolbar("knowledge")}
     <div class="knowledge-list">
       ${items.map(renderKnowledgeItem).join("") || emptyState("没有匹配的知识记录")}

@@ -594,7 +594,7 @@ function renderOverview() {
       </button>
     </div>
 
-    ${renderModuleLinks("overview")}
+    ${renderOverviewModuleLinks()}
 
     <div class="map-board">
       <div class="focus-lane" aria-label="模块流转图">
@@ -620,6 +620,52 @@ function laneNode(icon, label, value) {
       <span class="lane-icon"><i data-lucide="${icon}" aria-hidden="true"></i></span>
       <span><strong>${label}</strong><span>${value}</span></span>
     </div>
+  `;
+}
+
+function renderOverviewModuleLinks() {
+  const groups = [
+    {
+      key: "projects",
+      title: "项目管理",
+      summary: "本地项目管理主控台",
+      links: moduleLinks.overview.filter((link) => link.module === "projects"),
+    },
+    {
+      key: "channels",
+      title: "渠道管理",
+      summary: "NATM 与电视购物渠道入口",
+      links: moduleLinks.overview.filter((link) => link.module === "channels"),
+    },
+    {
+      key: "knowledge",
+      title: "知识与信息",
+      summary: "每日记录与信息沉淀入口",
+      links: moduleLinks.overview.filter((link) => link.module === "knowledge"),
+    },
+  ];
+
+  return `
+    <section class="overview-link-groups" aria-label="模块入口">
+      ${groups
+        .map(
+          (group) => `
+            <section class="overview-link-group overview-link-group-${group.key}">
+              <div class="overview-link-heading">
+                <span class="overview-link-icon"><i data-lucide="${modules[group.key].icon}" aria-hidden="true"></i></span>
+                <div>
+                  <h4>${escapeHTML(group.title)}</h4>
+                  <p>${escapeHTML(group.summary)}</p>
+                </div>
+              </div>
+              <div class="link-card-grid overview-link-card-grid">
+                ${group.links.map(renderLinkCard).join("")}
+              </div>
+            </section>
+          `,
+        )
+        .join("")}
+    </section>
   `;
 }
 

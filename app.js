@@ -28,10 +28,10 @@ const moduleLinks = {
     {
       module: "projects",
       title: "项目管理主控台",
-      caption: "打开本地项目管理页",
-      url: "http://127.0.0.1:8766/",
+      caption: "打开在线项目管理页",
+      url: "https://abchaoming1.github.io/Project-Management/",
       icon: "monitor-up",
-      badge: "Local",
+      badge: "Online",
     },
     {
       module: "channels",
@@ -62,10 +62,10 @@ const moduleLinks = {
     {
       module: "projects",
       title: "项目管理主控台",
-      caption: "主要项目入口：http://127.0.0.1:8766/",
-      url: "http://127.0.0.1:8766/",
+      caption: "主要项目入口：https://abchaoming1.github.io/Project-Management/",
+      url: "https://abchaoming1.github.io/Project-Management/",
       icon: "monitor-up",
-      badge: "Local",
+      badge: "Online",
     },
   ],
   channels: [
@@ -628,7 +628,7 @@ function renderOverviewModuleLinks() {
     {
       key: "projects",
       title: "项目管理",
-      summary: "本地项目管理主控台",
+      summary: "在线项目管理主控台",
       links: moduleLinks.overview.filter((link) => link.module === "projects"),
     },
     {

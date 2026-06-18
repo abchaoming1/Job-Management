@@ -8,7 +8,7 @@
 
 ## 模块入口
 
-- 项目管理：[本地项目管理页](http://127.0.0.1:8766/)
+- 项目管理：[在线项目管理页](https://abchaoming1.github.io/Project-Management/)
 - 渠道管理：[NATM 渠道](https://abchaoming1.github.io/NATM/#summarySection)
 - 渠道管理：[电视购物 GMA](https://abchaoming1.github.io/GMA/)
 - 知识与信息管理：[Everyday-Records](https://abchaoming1.github.io/Everyday-Records/)

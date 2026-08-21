@@ -9,7 +9,7 @@ let latestMonth = 0;
 let syncing = false;
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const state = { year: null, skuQuery: "" };
+const state = { year: null, skuQuery: "", monthSkuMonth: null, monthSkuQuery: "", matrixMetric: "qty" };
 const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
 const number = (value, digits = 0) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits });
 const percent = (value, digits = 1) => Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : "—";
@@ -32,12 +32,13 @@ function normalizeRecords(rows) {
   return rows.map((row) => {
     const sku = String(row.sku || "").trim();
     const inferredModel = sku.startsWith("S821-") ? "S820" : sku.split("-")[0];
+    const sourceModel = String(row.model || "").trim();
     const hasRevenue = row.hasRevenue ?? (row.revenue !== null && row.revenue !== undefined && row.revenue !== "");
     return {
       year: Number(row.year),
       month: Number(row.month),
       sku,
-      model: String(row.model || inferredModel).trim(),
+      model: !sourceModel || sourceModel === "#N/A" ? inferredModel : sourceModel,
       qty: Number(row.qty || 0),
       revenue: Number(row.revenue || 0),
       hasRevenue,
@@ -323,6 +324,97 @@ function renderMonthly() {
   }).join("");
 }
 
+function monthlySkuRows(year, month) {
+  const current = records.filter((row) => row.year === year && row.month === month);
+  const prior = records.filter((row) => row.year === year - 1 && row.month === month);
+  const priorMap = new Map(aggregate(prior, (row) => row.sku).map((row) => [row.key, row]));
+  return aggregate(current, (row) => row.sku).map((row) => {
+    const priorRow = priorMap.get(row.key);
+    return {
+      ...row,
+      model: row.rows[0]?.model || "—",
+      revenueRecorded: row.rows.some((item) => item.hasRevenue),
+      priorQty: priorRow?.qty || 0,
+      priorRevenue: priorRow?.revenue || 0,
+    };
+  }).sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
+}
+
+function renderMonthSkuMatrix(filteredSkus) {
+  const metric = state.matrixMetric;
+  const dataMap = new Map();
+  yearRecords().forEach((row) => {
+    const key = `${row.sku}::${row.month}`;
+    if (!dataMap.has(key)) dataMap.set(key, { qty: 0, revenue: 0, revenueRecorded: false });
+    const cell = dataMap.get(key);
+    cell.qty += row.qty;
+    cell.revenue += row.revenue;
+    cell.revenueRecorded ||= row.hasRevenue;
+  });
+  const values = [];
+  filteredSkus.forEach((row) => monthLabels.forEach((_, index) => {
+    const cell = dataMap.get(`${row.key}::${index + 1}`);
+    if (cell && (metric === "qty" || cell.revenueRecorded)) values.push(cell[metric]);
+  }));
+  const maxValue = Math.max(1, ...values);
+  const totals = monthLabels.map((_, index) => {
+    const monthRows = yearRecords().filter((row) => row.month === index + 1);
+    return { qty: sum(monthRows, "qty"), revenue: sum(monthRows, "revenue"), revenueRecorded: monthRows.some((row) => row.hasRevenue) };
+  });
+  document.getElementById("monthSkuMatrixHead").innerHTML = `<tr><th>SKU</th><th>Model</th>${monthLabels.map((label) => `<th>${label}</th>`).join("")}<th>Total</th></tr>`;
+  const body = filteredSkus.map((row) => {
+    let rowTotal = 0;
+    const cells = monthLabels.map((_, index) => {
+      const cell = dataMap.get(`${row.key}::${index + 1}`);
+      if (!cell) return '<td class="matrix-cell zero">—</td>';
+      if (metric === "revenue" && !cell.revenueRecorded) return '<td class="matrix-cell pending">待录</td>';
+      const value = cell[metric];
+      rowTotal += value;
+      const heat = value ? (.08 + value / maxValue * .48).toFixed(3) : 0;
+      const display = metric === "revenue" ? (value >= 1000 ? `$${number(value / 1000, 1)}k` : money(value)) : number(value);
+      return `<td class="matrix-cell ${value ? "" : "zero"}" style="--heat:${heat}">${display}</td>`;
+    }).join("");
+    return `<tr><td class="mono">${escapeHtml(row.key)}</td><td>${escapeHtml(row.model)}</td>${cells}<td>${metric === "revenue" ? money(rowTotal) : number(rowTotal)}</td></tr>`;
+  }).join("");
+  const totalCells = totals.map((cell) => metric === "revenue" && !cell.revenueRecorded ? '<td class="pending-value">待录</td>' : `<td>${metric === "revenue" ? money(cell.revenue) : number(cell.qty)}</td>`).join("");
+  document.getElementById("monthSkuMatrixBody").classList.toggle("matrix-revenue", metric === "revenue");
+  document.getElementById("monthSkuMatrixBody").innerHTML = `${body}<tr class="matrix-total"><td>月度合计</td><td>—</td>${totalCells}<td>${metric === "revenue" ? money(sum(yearRecords(), "revenue")) : number(sum(yearRecords(), "qty"))}</td></tr>`;
+}
+
+function renderMonthSku() {
+  const availableMonths = [...new Set(yearRecords().map((row) => row.month))].sort((a, b) => a - b);
+  if (!availableMonths.includes(Number(state.monthSkuMonth))) state.monthSkuMonth = Math.max(...availableMonths);
+  const select = document.getElementById("monthSkuSelect");
+  select.innerHTML = availableMonths.slice().reverse().map((month) => `<option value="${month}">${state.year}年 ${month}月</option>`).join("");
+  select.value = state.monthSkuMonth;
+
+  const allRows = monthlySkuRows(state.year, state.monthSkuMonth);
+  const query = state.monthSkuQuery.trim().toLowerCase();
+  const filtered = allRows.filter((row) => !query || `${row.key} ${row.model}`.toLowerCase().includes(query));
+  const yearSkuRows = aggregate(yearRecords(), (row) => row.sku).map((row) => ({ ...row, model: row.rows[0]?.model || "—" })).sort((a, b) => b.qty - a.qty);
+  const filteredYearSkus = yearSkuRows.filter((row) => !query || `${row.key} ${row.model}`.toLowerCase().includes(query));
+  const totalQty = sum(allRows, "qty"), totalRevenue = sum(allRows, "revenue");
+  const revenueRecorded = allRows.some((row) => row.revenueRecorded);
+  const modelRows = aggregate(allRows.flatMap((row) => row.rows), (row) => row.model).sort((a, b) => b.qty - a.qty);
+  const cards = [
+    ["本月 QTY", number(totalQty), `${allRows.length} 个活跃 SKU`],
+    ["本月 REV", revenueRecorded ? money(totalRevenue) : "待录入", revenueRecorded ? "源表已录 REV" : "当前仅有 QTY", revenueRecorded ? "" : "pending-value"],
+    ["销量第一 SKU", allRows[0]?.key || "—", `${number(allRows[0]?.qty)} units`, "mono"],
+    ["主力 Model", modelRows[0]?.key || "—", `${number(modelRows[0]?.qty)} units`],
+    ["平均 ASP", revenueRecorded ? money(totalRevenue / Math.max(totalQty, 1)) : "—", revenueRecorded ? "REV / QTY" : "等待 REV"],
+  ];
+  document.getElementById("monthSkuKpis").innerHTML = cards.map(([label, value, sub, className = ""]) => `<article class="panel kpi"><div class="kpi-label">${label}</div><div class="kpi-value ${className}">${escapeHtml(value)}</div><div class="kpi-sub">${escapeHtml(sub)}</div></article>`).join("");
+  document.getElementById("monthSkuTableTitle").textContent = `${state.year}年${state.monthSkuMonth}月 SKU 明细`;
+  document.getElementById("monthSkuTableNote").textContent = revenueRecorded ? "QTY、REV 与上年同月逐 SKU 对照" : "本月 REV 尚未录入，先展示 QTY 与 QTY 同比";
+  document.getElementById("monthSkuCount").textContent = `${filtered.length} / ${allRows.length} 个 SKU`;
+  document.getElementById("monthSkuTableBody").innerHTML = filtered.map((row) => {
+    const qtyGrowth = growth(row.qty, row.priorQty);
+    const revenueGrowth = row.revenueRecorded ? growth(row.revenue, row.priorRevenue) : NaN;
+    return `<tr><td>${allRows.indexOf(row) + 1}</td><td class="mono">${escapeHtml(row.key)}</td><td>${escapeHtml(row.model)}</td><td>${number(row.qty)}</td><td>${percent(row.qty / Math.max(totalQty, 1))}</td><td class="${tone(qtyGrowth)}">${percent(qtyGrowth)}</td><td>${row.revenueRecorded ? money(row.revenue) : '<span class="pending-value">待录入</span>'}</td><td class="${tone(revenueGrowth)}">${percent(revenueGrowth)}</td><td>${row.revenueRecorded ? money(row.revenue / Math.max(row.qty, 1)) : "—"}</td></tr>`;
+  }).join("");
+  renderMonthSkuMatrix(filteredYearSkus);
+}
+
 function renderSku() {
   const current = yearRecords(), prior = yearRecords(state.year - 1);
   const priorMap = new Map(aggregate(prior, (row) => row.sku).map((row) => [row.key, row]));
@@ -346,13 +438,27 @@ function renderRawData() {
 }
 
 function renderAll() {
-  renderOverview(); renderMonthly(); renderSku(); renderRawData();
+  renderOverview(); renderMonthly(); renderMonthSku(); renderSku(); renderRawData();
 }
 
 document.getElementById("yearSelect").addEventListener("change", (event) => { state.year = Number(event.target.value); renderAll(); });
-document.getElementById("resetFilters").addEventListener("click", () => { state.year = latestYear; state.skuQuery = ""; document.getElementById("yearSelect").value = latestYear; document.getElementById("skuSearch").value = ""; renderAll(); });
+document.getElementById("resetFilters").addEventListener("click", () => {
+  state.year = latestYear; state.skuQuery = ""; state.monthSkuMonth = null; state.monthSkuQuery = ""; state.matrixMetric = "qty";
+  document.getElementById("yearSelect").value = latestYear;
+  document.getElementById("skuSearch").value = "";
+  document.getElementById("monthSkuSearch").value = "";
+  document.querySelectorAll("[data-matrix-metric]").forEach((item) => item.classList.toggle("active", item.dataset.matrixMetric === "qty"));
+  renderAll();
+});
 document.getElementById("refreshData").addEventListener("click", () => syncLiveData({ manual: true }));
 document.getElementById("skuSearch").addEventListener("input", (event) => { state.skuQuery = event.target.value; renderSku(); });
+document.getElementById("monthSkuSelect").addEventListener("change", (event) => { state.monthSkuMonth = Number(event.target.value); renderMonthSku(); });
+document.getElementById("monthSkuSearch").addEventListener("input", (event) => { state.monthSkuQuery = event.target.value; renderMonthSku(); });
+document.querySelectorAll("[data-matrix-metric]").forEach((button) => button.addEventListener("click", () => {
+  state.matrixMetric = button.dataset.matrixMetric;
+  document.querySelectorAll("[data-matrix-metric]").forEach((item) => item.classList.toggle("active", item === button));
+  renderMonthSku();
+}));
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item === tab));
   document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${tab.dataset.view}`));

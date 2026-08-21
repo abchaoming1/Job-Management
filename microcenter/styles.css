@@ -105,6 +105,26 @@ main { max-width: 1500px; margin: 0 auto; padding: 0 28px 40px; }
 .section-intro { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin: 1px 0 15px; }
 .section-intro h2 { font-size: 20px; }
 .section-intro > p { max-width: 620px; margin: 0; color: var(--muted); line-height: 1.55; text-align: right; }
+.detail-controls { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }
+.search-control.compact { min-width: 255px; }
+.month-kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; }
+.month-kpi-grid .kpi { min-height: 104px; }
+.month-detail-wrap { max-height: 640px; }
+.matrix-panel { margin-top: 14px; overflow: hidden; }
+.metric-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: #f2f5f0; }
+.metric-toggle button { min-width: 54px; border: 0; border-radius: 5px; padding: 6px 10px; color: var(--muted); background: transparent; font-weight: 700; cursor: pointer; }
+.metric-toggle button.active { color: #fff; background: var(--green); box-shadow: 0 2px 8px rgba(37,118,83,.18); }
+.matrix-wrap { max-height: 720px; }
+.matrix-table { min-width: 1180px; }
+.matrix-table th:first-child, .matrix-table td:first-child { position: sticky; left: 0; z-index: 3; min-width: 175px; max-width: 175px; background: #fff; text-align: left; }
+.matrix-table th:nth-child(2), .matrix-table td:nth-child(2) { position: sticky; left: 175px; z-index: 3; min-width: 74px; background: #fff; text-align: left; box-shadow: 8px 0 12px rgba(35,45,38,.04); }
+.matrix-table thead th:first-child, .matrix-table thead th:nth-child(2) { z-index: 5; background: #f8faf6; }
+.matrix-table td { min-width: 66px; padding: 9px 8px; font: 600 11px "IBM Plex Mono", monospace; text-align: center; }
+.matrix-cell { background: rgba(14,125,134,var(--heat,0)); }
+.matrix-revenue .matrix-cell { background: rgba(199,122,25,var(--heat,0)); }
+.matrix-cell.zero { color: #a0a8a1; }
+.matrix-cell.pending { color: var(--amber); background: repeating-linear-gradient(135deg,#fff8ea,#fff8ea 5px,#fff 5px,#fff 10px); }
+.matrix-total td { position: sticky; bottom: 0; z-index: 2; background: #eff5ef !important; font-weight: 800; border-top: 2px solid #cdd8ce; }
 .two-chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .table-panel { margin-top: 14px; overflow: hidden; }
 .table-wrap { overflow: auto; border-top: 1px solid #edf0ea; }
@@ -142,6 +162,8 @@ td.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
   .section-intro { align-items: stretch; flex-direction: column; }
   .section-intro > p { text-align: left; }
   .sku-intro .search-control { min-width: 0; width: 100%; }
+  .detail-controls, .detail-controls .search-control { width: 100%; min-width: 0; }
+  .month-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .data-audit { grid-template-columns: 1fr; }
   .rank-row { grid-template-columns: 24px minmax(100px, 1fr) auto; }
   .rank-track { display: none; }

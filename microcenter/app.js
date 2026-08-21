@@ -1,12 +1,14 @@
 const SHEET_ID = "1EOU7HhL5MXJRx6fFAtRk_kKxCL78oFHpvCEOnhtqsZI";
 const SHEET_GID = "559434467";
 const SHEET_QUERY = "select A,B,C,D,E,F,G,H where D='MC'";
+const TEXT_REVENUE_RANGE = "A1580:H";
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
 let records = [];
 let years = [];
 let latestYear = 0;
 let latestMonth = 0;
 let syncing = false;
+let jsonpRequestId = 0;
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const state = { year: null, skuQuery: "", monthSkuMonth: null, monthSkuQuery: "", matrixMetric: "qty" };
@@ -62,6 +64,31 @@ function recordsFromGoogleTable(table) {
   }).filter((row) => row.channel === "MC");
 }
 
+function parseCurrency(value) {
+  const parsed = Number(String(value ?? "").replace(/[$,]/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function recordsFromTextRevenueTable(table) {
+  return (table?.rows || []).map((row) => {
+    const cells = row.c || [];
+    const revenue = parseCurrency(cells[7]?.v);
+    return {
+      year: cells[1]?.v,
+      month: cells[2]?.v,
+      channel: cells[3]?.v,
+      sku: cells[4]?.v,
+      qty: cells[6]?.v,
+      revenue,
+      hasRevenue: revenue !== null,
+    };
+  }).filter((row) => row.channel === "MC" && row.sku && row.hasRevenue);
+}
+
+function recordKey(row) {
+  return `${Number(row.year)}|${Number(row.month)}|${row.channel}|${row.sku}|${Number(row.qty || 0)}`;
+}
+
 function setSourceStatus(kind, message) {
   const summary = document.getElementById("sourceSummary");
   summary.classList.remove("syncing", "live", "fallback");
@@ -95,9 +122,9 @@ function applyRecords(nextRecords, preferredYear = state.year) {
   document.body.classList.remove("initial-sync");
 }
 
-function loadGoogleSheet() {
+function loadGoogleTable(options) {
   return new Promise((resolve, reject) => {
-    const callbackName = `__mcSheetCallback_${Date.now()}`;
+    const callbackName = `__mcSheetCallback_${Date.now()}_${jsonpRequestId++}`;
     const script = document.createElement("script");
     const timeout = window.setTimeout(() => finish(new Error("Google Sheet request timed out.")), 15000);
     const finish = (error, data) => {
@@ -108,12 +135,25 @@ function loadGoogleSheet() {
     };
     window[callbackName] = (response) => {
       if (response?.status !== "ok") { finish(new Error(response?.errors?.[0]?.detailed_message || "Google Sheet query failed.")); return; }
-      finish(null, recordsFromGoogleTable(response.table));
+      finish(null, response.table);
     };
     script.onerror = () => finish(new Error("Google Sheet script could not be loaded."));
-    const params = new URLSearchParams({ gid: SHEET_GID, tq: SHEET_QUERY, tqx: `responseHandler:${callbackName};out:json`, _: Date.now() });
+    const params = new URLSearchParams({ gid: SHEET_GID, tqx: `responseHandler:${callbackName};out:json`, _: Date.now(), ...options });
     script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?${params}`;
     document.head.append(script);
+  });
+}
+
+async function loadGoogleSheet() {
+  const [primaryTable, textRevenueTable] = await Promise.all([
+    loadGoogleTable({ tq: SHEET_QUERY }),
+    loadGoogleTable({ range: TEXT_REVENUE_RANGE, headers: "0" }),
+  ]);
+  const primaryRecords = recordsFromGoogleTable(primaryTable);
+  const revenuePatches = group(recordsFromTextRevenueTable(textRevenueTable), recordKey);
+  return primaryRecords.map((row) => {
+    const patch = revenuePatches.get(recordKey(row))?.shift();
+    return patch ? { ...row, revenue: patch.revenue, hasRevenue: true } : row;
   });
 }
 

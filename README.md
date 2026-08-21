@@ -28,6 +28,7 @@
   - 在线同步异常时自动回退到仓库内置数据，不影响看板打开
   - QTY 与 REV 分别识别最新完整月份，避免不同截止期混算同比和 ASP
   - 月度 × SKU 页面支持逐月 SKU 明细、同月同比及 12 个月 QTY/REV 矩阵
+  - 自动合并历史数值型 REV 与新增带货币符号的文本型 REV
 - `design-system/MASTER.md`: 设计系统与验收标准
 
 ## GitHub Pages

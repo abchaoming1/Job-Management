@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20260821-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260821-3" />
   </head>
-  <body>
+  <body class="initial-sync">
     <header class="site-header">
       <div class="topbar">
         <div class="title-block">
@@ -40,6 +40,11 @@
         <button class="tab" data-view="data" type="button">Micro Center 数据</button>
       </nav>
 
+      <section class="initial-loading" aria-live="polite">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <div><strong>正在读取 Google Sheet</strong><p>同步 Micro Center 最新 QTY 与 REV 数据…</p></div>
+      </section>
+
       <section class="view active" id="view-overview">
         <div class="kpi-grid" id="kpiGrid"></div>
 
@@ -51,7 +56,7 @@
         <div class="dashboard-grid">
           <article class="panel chart-panel">
             <div class="panel-head">
-              <div><h2>月度营收趋势</h2><p>本年与上年同月对照</p></div>
+              <div><h2>月度营收趋势</h2><p id="overviewRevenueNote">本年与上年同月对照</p></div>
               <span class="legend"><i class="current"></i>本年 <i class="prior"></i>上年</span>
             </div>
             <div class="chart" id="overviewMonthlyChart"></div>
@@ -82,7 +87,7 @@
           <p>统一使用 sell-out QTY 与 REV 口径，未录月份不补零预测。</p>
         </div>
         <div class="two-chart-grid">
-          <article class="panel chart-panel"><div class="panel-head"><h2>月度 REV</h2><span class="small-note">USD</span></div><div class="chart" id="monthlyRevenueChart"></div></article>
+          <article class="panel chart-panel"><div class="panel-head"><h2>月度 REV</h2><span class="small-note" id="monthlyRevenueNote">USD</span></div><div class="chart" id="monthlyRevenueChart"></div></article>
           <article class="panel chart-panel"><div class="panel-head"><h2>月度 QTY</h2><span class="small-note">Units</span></div><div class="chart" id="monthlyQtyChart"></div></article>
         </div>
         <article class="panel table-panel">
@@ -125,6 +130,6 @@
     </main>
 
     <script src="./data.js?v=20260821-1"></script>
-    <script src="./app.js?v=20260821-2"></script>
+    <script src="./app.js?v=20260821-3"></script>
   </body>
 </html>

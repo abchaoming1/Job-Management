@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20260821-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260821-2" />
   </head>
   <body>
     <header class="site-header">
@@ -25,6 +25,7 @@
           <label class="select-control">分析年份
             <select id="yearSelect" aria-label="分析年份"></select>
           </label>
+          <button id="refreshData" type="button">刷新数据</button>
           <button id="resetFilters" type="button">重置筛选</button>
           <a class="source-link" href="https://docs.google.com/spreadsheets/d/1EOU7HhL5MXJRx6fFAtRk_kKxCL78oFHpvCEOnhtqsZI/edit?gid=559434467#gid=559434467" target="_blank" rel="noopener noreferrer">打开源表 ↗</a>
         </div>
@@ -124,6 +125,6 @@
     </main>
 
     <script src="./data.js?v=20260821-1"></script>
-    <script src="./app.js?v=20260821-1"></script>
+    <script src="./app.js?v=20260821-2"></script>
   </body>
 </html>

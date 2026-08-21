@@ -1,11 +1,15 @@
-const source = window.MC_DATA;
-const records = source.records.map((row) => ({ ...row, qty: Number(row.qty), revenue: Number(row.revenue) }));
-const years = [...new Set(records.map((row) => Number(row.year)))].sort((a, b) => a - b);
-const latestYear = Math.max(...years);
-const latestMonth = Math.max(...records.filter((row) => row.year === latestYear).map((row) => Number(row.month)));
+const SHEET_ID = "1EOU7HhL5MXJRx6fFAtRk_kKxCL78oFHpvCEOnhtqsZI";
+const SHEET_GID = "559434467";
+const SHEET_QUERY = "select A,B,C,D,E,F,G,H where D='MC'";
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
+let records = [];
+let years = [];
+let latestYear = 0;
+let latestMonth = 0;
+let syncing = false;
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const state = { year: latestYear, skuQuery: "" };
+const state = { year: null, skuQuery: "" };
 const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
 const number = (value, digits = 0) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits });
 const percent = (value, digits = 1) => Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : "—";
@@ -22,6 +26,113 @@ function group(items, keyFn) {
     map.get(key).push(item);
   });
   return map;
+}
+
+function normalizeRecords(rows) {
+  return rows.map((row) => {
+    const sku = String(row.sku || "").trim();
+    const inferredModel = sku.startsWith("S821-") ? "S820" : sku.split("-")[0];
+    return {
+      year: Number(row.year),
+      month: Number(row.month),
+      sku,
+      model: String(row.model || inferredModel).trim(),
+      qty: Number(row.qty || 0),
+      revenue: Number(row.revenue || 0),
+    };
+  }).filter((row) => Number.isFinite(row.year) && Number.isFinite(row.month) && row.sku);
+}
+
+function recordsFromGoogleTable(table) {
+  return (table?.rows || []).map((row) => {
+    const cells = row.c || [];
+    return {
+      year: cells[1]?.v,
+      month: cells[2]?.v,
+      channel: cells[3]?.v,
+      sku: cells[4]?.v,
+      model: cells[5]?.v,
+      qty: cells[6]?.v,
+      revenue: cells[7]?.v,
+    };
+  }).filter((row) => row.channel === "MC");
+}
+
+function setSourceStatus(kind, message) {
+  const summary = document.getElementById("sourceSummary");
+  summary.classList.remove("syncing", "live", "fallback");
+  summary.classList.add(kind);
+  summary.textContent = message;
+}
+
+function refreshYearOptions(preferredYear = state.year) {
+  const select = document.getElementById("yearSelect");
+  select.innerHTML = years.slice().reverse().map((year) => `<option value="${year}">${year}</option>`).join("");
+  state.year = years.includes(Number(preferredYear)) ? Number(preferredYear) : latestYear;
+  select.value = state.year;
+}
+
+function updateDataAudit() {
+  const minRecord = records.reduce((best, row) => row.year * 100 + row.month < best ? row.year * 100 + row.month : best, Infinity);
+  const maxRecord = records.reduce((best, row) => row.year * 100 + row.month > best ? row.year * 100 + row.month : best, 0);
+  document.getElementById("rowCount").textContent = number(records.length);
+  document.getElementById("periodRange").textContent = `${String(minRecord).slice(0, 4)}.${String(minRecord).slice(4)}–${String(maxRecord).slice(0, 4)}.${String(maxRecord).slice(4)}`;
+}
+
+function applyRecords(nextRecords, preferredYear = state.year) {
+  records = normalizeRecords(nextRecords);
+  if (!records.length) throw new Error("Google Sheet did not return Micro Center rows.");
+  years = [...new Set(records.map((row) => row.year))].sort((a, b) => a - b);
+  latestYear = Math.max(...years);
+  latestMonth = Math.max(...records.filter((row) => row.year === latestYear).map((row) => row.month));
+  refreshYearOptions(preferredYear);
+  updateDataAudit();
+  renderAll();
+}
+
+function loadGoogleSheet() {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__mcSheetCallback_${Date.now()}`;
+    const script = document.createElement("script");
+    const timeout = window.setTimeout(() => finish(new Error("Google Sheet request timed out.")), 15000);
+    const finish = (error, data) => {
+      window.clearTimeout(timeout);
+      script.remove();
+      delete window[callbackName];
+      error ? reject(error) : resolve(data);
+    };
+    window[callbackName] = (response) => {
+      if (response?.status !== "ok") { finish(new Error(response?.errors?.[0]?.detailed_message || "Google Sheet query failed.")); return; }
+      finish(null, recordsFromGoogleTable(response.table));
+    };
+    script.onerror = () => finish(new Error("Google Sheet script could not be loaded."));
+    const params = new URLSearchParams({ gid: SHEET_GID, tq: SHEET_QUERY, tqx: `responseHandler:${callbackName};out:json`, _: Date.now() });
+    script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?${params}`;
+    document.head.append(script);
+  });
+}
+
+async function syncLiveData({ manual = false } = {}) {
+  if (syncing) return;
+  syncing = true;
+  const button = document.getElementById("refreshData");
+  button.disabled = true;
+  button.textContent = "同步中…";
+  setSourceStatus("syncing", "正在同步 Google Sheet 的 Micro Center 数据…");
+  try {
+    const liveRecords = await loadGoogleSheet();
+    applyRecords(liveRecords);
+    const stamp = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+    setSourceStatus("live", `已自动同步 Google Sheet ｜ 仅 MC ｜ 最新数据 ${latestYear}-${String(latestMonth).padStart(2, "0")} ｜ ${stamp}`);
+  } catch (error) {
+    console.warn("Live Google Sheet sync failed; using embedded fallback data.", error);
+    setSourceStatus("fallback", `在线同步暂不可用，当前显示内置数据 ｜ 最新 ${latestYear}-${String(latestMonth).padStart(2, "0")}`);
+    if (manual) window.alert("Google Sheet 暂时无法读取，已继续显示最近一次内置数据。");
+  } finally {
+    syncing = false;
+    button.disabled = false;
+    button.textContent = "刷新数据";
+  }
 }
 
 function yearRecords(year = state.year) { return records.filter((row) => row.year === year); }
@@ -207,20 +318,16 @@ function renderAll() {
   renderOverview(); renderMonthly(); renderSku(); renderRawData();
 }
 
-document.getElementById("yearSelect").innerHTML = years.slice().reverse().map((year) => `<option value="${year}">${year}</option>`).join("");
-document.getElementById("yearSelect").value = state.year;
 document.getElementById("yearSelect").addEventListener("change", (event) => { state.year = Number(event.target.value); renderAll(); });
 document.getElementById("resetFilters").addEventListener("click", () => { state.year = latestYear; state.skuQuery = ""; document.getElementById("yearSelect").value = latestYear; document.getElementById("skuSearch").value = ""; renderAll(); });
+document.getElementById("refreshData").addEventListener("click", () => syncLiveData({ manual: true }));
 document.getElementById("skuSearch").addEventListener("input", (event) => { state.skuQuery = event.target.value; renderSku(); });
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item === tab));
   document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${tab.dataset.view}`));
 }));
 
-const minRecord = records.reduce((best, row) => row.year * 100 + row.month < best ? row.year * 100 + row.month : best, Infinity);
-const maxRecord = records.reduce((best, row) => row.year * 100 + row.month > best ? row.year * 100 + row.month : best, 0);
-document.getElementById("sourceSummary").textContent = `源表：Kyle渠道数据看板 ｜ 仅 MC ｜ 最新数据 ${latestYear}-${String(latestMonth).padStart(2, "0")}`;
-document.getElementById("rowCount").textContent = number(records.length);
-document.getElementById("periodRange").textContent = `${String(minRecord).slice(0, 4)}.${String(minRecord).slice(4)}–${String(maxRecord).slice(0, 4)}.${String(maxRecord).slice(4)}`;
-renderAll();
-
+applyRecords(window.MC_DATA.records, null);
+setSourceStatus("syncing", "正在同步 Google Sheet 的 Micro Center 数据…");
+syncLiveData();
+window.setInterval(() => syncLiveData(), AUTO_REFRESH_MS);

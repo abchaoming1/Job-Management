@@ -28,6 +28,11 @@ button, input, select { font: inherit; }
 .eyebrow { margin: 0 0 4px; color: #66706a; font: 600 11px/1.2 "IBM Plex Mono", monospace; letter-spacing: .07em; text-transform: uppercase; }
 h1 { margin: 0 0 5px; font-size: clamp(21px, 2vw, 27px); line-height: 1.2; font-weight: 800; letter-spacing: -.02em; }
 .subtitle { margin: 0; color: var(--muted); font-size: 12px; }
+.subtitle.syncing::before, .subtitle.live::before, .subtitle.fallback::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; vertical-align: 1px; }
+.subtitle.syncing::before { border: 2px solid #b8c2ba; border-top-color: var(--green); animation: spin .8s linear infinite; }
+.subtitle.live::before { background: var(--green); box-shadow: 0 0 0 3px rgba(37,118,83,.12); }
+.subtitle.fallback::before { background: var(--amber); }
+@keyframes spin { to { transform: rotate(360deg); } }
 .controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .controls button, .source-link, .select-control { min-height: 36px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); box-shadow: 0 1px 0 rgba(0,0,0,.02); }
 .controls button, .source-link { padding: 8px 12px; font-weight: 650; cursor: pointer; text-decoration: none; }
@@ -134,4 +139,3 @@ td.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
   .rank-row { grid-template-columns: 24px minmax(100px, 1fr) auto; }
   .rank-track { display: none; }
 }
-

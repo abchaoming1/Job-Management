@@ -24,6 +24,8 @@
 - `styles.css`: 视觉系统与响应式布局
 - `app.js`: 入口链接、数据、筛选、CRUD、本地持久化
 - `microcenter/`: 仅包含 MC 渠道数据的销售、月度与 SKU 看板
+  - 页面启动及每 5 分钟通过 Google Visualization API 自动同步源表中的 MC 数据
+  - 在线同步异常时自动回退到仓库内置数据，不影响看板打开
 - `design-system/MASTER.md`: 设计系统与验收标准
 
 ## GitHub Pages

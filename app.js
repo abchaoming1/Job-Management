@@ -13,7 +13,7 @@ const modules = {
   },
   channels: {
     label: "渠道管理",
-    sub: "BBY / NATM / GMA",
+    sub: "BBY / NATM / GMA / MC",
     icon: "network",
   },
   knowledge: {
@@ -48,6 +48,14 @@ const moduleLinks = {
       url: "https://abchaoming1.github.io/GMA/",
       icon: "tv",
       badge: "GMA",
+    },
+    {
+      module: "channels",
+      title: "Micro Center 渠道看板",
+      caption: "销售趋势、SKU 与产品结构",
+      url: "./microcenter/",
+      icon: "store",
+      badge: "MC",
     },
     {
       module: "knowledge",
@@ -85,6 +93,14 @@ const moduleLinks = {
       icon: "tv",
       badge: "GMA",
     },
+    {
+      module: "channels",
+      title: "Micro Center 渠道",
+      caption: "Micro Center sell-out 销售看板",
+      url: "./microcenter/",
+      icon: "store",
+      badge: "MC",
+    },
   ],
   knowledge: [
     {
@@ -103,7 +119,7 @@ const optionSets = {
   projectPriority: ["P0", "P1", "P2", "P3"],
   channelStatus: ["待处理", "等待回复", "已回复", "有风险", "已完成", "仅参考"],
   channelPriority: ["高", "中", "低"],
-  channelName: ["BBY", "NATM", "GMA", "Other"],
+  channelName: ["BBY", "NATM", "GMA", "Micro Center", "Other"],
   knowledgeStatus: ["待处理", "等待回复", "已回复", "有风险", "已完成", "仅参考"],
   knowledgePriority: ["高", "中", "低"],
   knowledgeModule: ["BBY", "NATM", "电视购物", "Shokz", "分销", "CE", "跨部门协作", "其他"],

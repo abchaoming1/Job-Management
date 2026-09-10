@@ -24,11 +24,16 @@
 - `styles.css`: 视觉系统与响应式布局
 - `app.js`: 入口链接、数据、筛选、CRUD、本地持久化
 - `microcenter/`: 仅包含 MC 渠道数据的销售、月度与 SKU 看板
-  - 页面启动及每 5 分钟通过 Google Visualization API 自动同步源表中的 MC 数据
-  - 在线同步异常时自动回退到仓库内置数据，不影响看板打开
-  - QTY 与 REV 分别识别最新完整月份，避免不同截止期混算同比和 ASP
-  - 月度 × SKU 页面支持逐月 SKU 明细、同月同比及 12 个月 QTY/REV 矩阵
-  - 自动合并历史数值型 REV 与新增带货币符号的文本型 REV
+  - 默认呈现 **2025 全年**；参考 NATM 的侧栏与年度、月度、SKU 分析结构
+  - 页面启动、回到页面及可见时每 5 分钟读取 Google Sheet 的 XLSX 导出
+  - 从「渠道数据总表」A:H 读取底层数值和公式缓存值，仅保留渠道 MC；不受列类型推断、显示格式或固定行号影响
+  - 原表每行只读取一次，同月同 SKU 多行逐行累加；原始行号可回到 Google Sheet 核对
+  - QTY / REV 分别核对每月完整性，空白与零分开；同比按两年相同月份计算
+  - 支持完整 SKU / 基础 SKU、12 个月矩阵、单 SKU 趋势、年度汇总和 CSV 导出
+  - 在线成功后保存本地快照；在线失败时保留最近快照并明确显示快照时间和错误，不显示“同步成功”
+  - 内置快照通过 `python scripts/analyze_microcenter.py source.xlsx microcenter/data.js` 从原表导出生成，保留数值精度及下载时间
+  - 回归检查：`node --test scripts/microcenter-data.test.cjs`（包括重复行、混合金额格式、缺失值、跨年同期和源表汇总）
+  - XLSX 解压依赖本地随站点发布的 JSZip 3.10.1，许可见 `microcenter/vendor/JSZip-LICENSE.markdown`
 - `design-system/MASTER.md`: 设计系统与验收标准
 
 ## GitHub Pages

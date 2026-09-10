@@ -1,509 +1,262 @@
-const SHEET_ID = "1EOU7HhL5MXJRx6fFAtRk_kKxCL78oFHpvCEOnhtqsZI";
-const SHEET_GID = "559434467";
-const SHEET_QUERY = "select A,B,C,D,E,F,G,H where D='MC'";
-const TEXT_REVENUE_RANGE = "A1580:H";
-const AUTO_REFRESH_MS = 5 * 60 * 1000;
-let records = [];
-let years = [];
-let latestYear = 0;
-let latestMonth = 0;
-let syncing = false;
-let jsonpRequestId = 0;
-const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-const state = { year: null, skuQuery: "", monthSkuMonth: null, monthSkuQuery: "", matrixMetric: "qty" };
-const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
-const number = (value, digits = 0) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits });
-const percent = (value, digits = 1) => Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : "—";
-const growth = (current, prior) => prior ? (current - prior) / prior : NaN;
-const tone = (value) => Number.isFinite(value) && value >= 0 ? "positive" : "negative";
-const sum = (items, field) => items.reduce((total, item) => total + Number(item[field] || 0), 0);
-const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
-
-function group(items, keyFn) {
-  const map = new Map();
-  items.forEach((item) => {
-    const key = keyFn(item);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(item);
-  });
-  return map;
-}
-
-function normalizeRecords(rows) {
-  return rows.map((row) => {
-    const sku = String(row.sku || "").trim();
-    const inferredModel = sku.startsWith("S821-") ? "S820" : sku.split("-")[0];
-    const sourceModel = String(row.model || "").trim();
-    const hasRevenue = row.hasRevenue ?? (row.revenue !== null && row.revenue !== undefined && row.revenue !== "");
-    return {
-      year: Number(row.year),
-      month: Number(row.month),
-      sku,
-      model: !sourceModel || sourceModel === "#N/A" ? inferredModel : sourceModel,
-      qty: Number(row.qty || 0),
-      revenue: Number(row.revenue || 0),
-      hasRevenue,
-    };
-  }).filter((row) => Number.isFinite(row.year) && Number.isFinite(row.month) && row.sku);
-}
-
-function recordsFromGoogleTable(table) {
-  return (table?.rows || []).map((row) => {
-    const cells = row.c || [];
-    return {
-      year: cells[1]?.v,
-      month: cells[2]?.v,
-      channel: cells[3]?.v,
-      sku: cells[4]?.v,
-      model: cells[5]?.v,
-      qty: cells[6]?.v,
-      revenue: cells[7]?.v,
-      hasRevenue: cells[7]?.v !== null && cells[7]?.v !== undefined,
-    };
-  }).filter((row) => row.channel === "MC");
-}
-
-function parseCurrency(value) {
-  const parsed = Number(String(value ?? "").replace(/[$,]/g, "").trim());
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function recordsFromTextRevenueTable(table) {
-  return (table?.rows || []).map((row) => {
-    const cells = row.c || [];
-    const revenue = parseCurrency(cells[7]?.v);
-    return {
-      year: cells[1]?.v,
-      month: cells[2]?.v,
-      channel: cells[3]?.v,
-      sku: cells[4]?.v,
-      qty: cells[6]?.v,
-      revenue,
-      hasRevenue: revenue !== null,
-    };
-  }).filter((row) => row.channel === "MC" && row.sku && row.hasRevenue);
-}
-
-function recordKey(row) {
-  return `${Number(row.year)}|${Number(row.month)}|${row.channel}|${row.sku}|${Number(row.qty || 0)}`;
-}
-
-function setSourceStatus(kind, message) {
-  const summary = document.getElementById("sourceSummary");
-  summary.classList.remove("syncing", "live", "fallback");
-  summary.classList.add(kind);
-  summary.textContent = message;
-}
-
-function refreshYearOptions(preferredYear = state.year) {
-  const select = document.getElementById("yearSelect");
-  select.innerHTML = years.slice().reverse().map((year) => `<option value="${year}">${year}</option>`).join("");
-  state.year = years.includes(Number(preferredYear)) ? Number(preferredYear) : latestYear;
-  select.value = state.year;
-}
-
-function updateDataAudit() {
-  const minRecord = records.reduce((best, row) => row.year * 100 + row.month < best ? row.year * 100 + row.month : best, Infinity);
-  const maxRecord = records.reduce((best, row) => row.year * 100 + row.month > best ? row.year * 100 + row.month : best, 0);
-  document.getElementById("rowCount").textContent = number(records.length);
-  document.getElementById("periodRange").textContent = `${String(minRecord).slice(0, 4)}.${String(minRecord).slice(4)}–${String(maxRecord).slice(0, 4)}.${String(maxRecord).slice(4)}`;
-}
-
-function applyRecords(nextRecords, preferredYear = state.year) {
-  records = normalizeRecords(nextRecords);
-  if (!records.length) throw new Error("Google Sheet did not return Micro Center rows.");
-  years = [...new Set(records.map((row) => row.year))].sort((a, b) => a - b);
-  latestYear = Math.max(...years);
-  latestMonth = Math.max(...records.filter((row) => row.year === latestYear).map((row) => row.month));
-  refreshYearOptions(preferredYear);
-  updateDataAudit();
-  renderAll();
-  document.body.classList.remove("initial-sync");
-}
-
-function loadGoogleTable(options) {
-  return new Promise((resolve, reject) => {
-    const callbackName = `__mcSheetCallback_${Date.now()}_${jsonpRequestId++}`;
-    const script = document.createElement("script");
-    const timeout = window.setTimeout(() => finish(new Error("Google Sheet request timed out.")), 15000);
-    const finish = (error, data) => {
-      window.clearTimeout(timeout);
-      script.remove();
-      delete window[callbackName];
-      error ? reject(error) : resolve(data);
-    };
-    window[callbackName] = (response) => {
-      if (response?.status !== "ok") { finish(new Error(response?.errors?.[0]?.detailed_message || "Google Sheet query failed.")); return; }
-      finish(null, response.table);
-    };
-    script.onerror = () => finish(new Error("Google Sheet script could not be loaded."));
-    const params = new URLSearchParams({ gid: SHEET_GID, tqx: `responseHandler:${callbackName};out:json`, _: Date.now(), ...options });
-    script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?${params}`;
-    document.head.append(script);
-  });
-}
-
-async function loadGoogleSheet() {
-  const [primaryTable, textRevenueTable] = await Promise.all([
-    loadGoogleTable({ tq: SHEET_QUERY }),
-    loadGoogleTable({ range: TEXT_REVENUE_RANGE, headers: "0" }),
-  ]);
-  const primaryRecords = recordsFromGoogleTable(primaryTable);
-  const revenuePatches = group(recordsFromTextRevenueTable(textRevenueTable), recordKey);
-  return primaryRecords.map((row) => {
-    const patch = revenuePatches.get(recordKey(row))?.shift();
-    return patch ? { ...row, revenue: patch.revenue, hasRevenue: true } : row;
-  });
-}
-
-async function syncLiveData({ manual = false } = {}) {
-  if (syncing) return;
-  syncing = true;
-  const button = document.getElementById("refreshData");
-  button.disabled = true;
-  button.textContent = "同步中…";
-  setSourceStatus("syncing", "正在同步 Google Sheet 的 Micro Center 数据…");
-  try {
-    const liveRecords = await loadGoogleSheet();
-    applyRecords(liveRecords);
-    const stamp = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
-    setSourceStatus("live", `已自动同步 Google Sheet ｜ 仅 MC ｜ 最新数据 ${latestYear}-${String(latestMonth).padStart(2, "0")} ｜ ${stamp}`);
-  } catch (error) {
-    console.warn("Live Google Sheet sync failed; using embedded fallback data.", error);
-    if (!records.length) applyRecords(window.MC_DATA.records, null);
-    setSourceStatus("fallback", `在线同步暂不可用，当前显示内置数据 ｜ 最新 ${latestYear}-${String(latestMonth).padStart(2, "0")}`);
-    if (manual) window.alert("Google Sheet 暂时无法读取，已继续显示最近一次内置数据。");
-  } finally {
-    syncing = false;
-    button.disabled = false;
-    button.textContent = "刷新数据";
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const esc = text => String(text ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const num = (v, digits = 0) => v === null || !Number.isFinite(v) ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const money = (v, digits = 0) => v === null || !Number.isFinite(v) ? "—" : `${v < 0 ? "−" : ""}$${num(Math.abs(v), digits)}`;
+  const pct = v => v === null || !Number.isFinite(v) ? "—" : `${v > 0 ? "+" : ""}${num(v * 100, 1)}%`;
+  const share = v => v === null || !Number.isFinite(v) ? "—" : `${num(v * 100, 1)}%`;
+  const delta = v => `<span class="${v === null ? "neutral" : v >= 0 ? "positive" : "negative"}">${pct(v)}</span>`;
+  const CACHE_KEY = "mc-workbook-snapshot-v2";
+  const state = { year: 2025, month: null, level: "sku", metric: "qty", sku: null, monthSearch: "", matrixSearch: "", snapshot: null, sourceKind: "cached", syncing: false };
+  let records = [], years = [], summaryExport = [];
+  let yearRows = new Map(), periodRows = new Map(), periodTotals = new Map(), productMonths = new Map(), yearTotals = new Map();
+  const rows = (year = state.year, month = null) => (month === null ? yearRows.get(year) : periodRows.get(`${year}-${month}`)) || [];
+  const selected = () => yearTotals.get(state.year);
+  const stamp = iso => iso ? new Date(iso).toLocaleString("zh-CN", { hour12: false }) : "未知";
+  const monthList = months => !months.length ? "暂无" : months.length === 12 ? "1–12 月" : months.every((m, i) => !i || m === months[i - 1] + 1) ? `${months[0]}–${months.at(-1)} 月` : months.map(m => `${m}月`).join("、");
+  const yearPeriod = a => a.qtyMonths.length === 12 && a.revenueMonths.length === 12 ? "全年 1–12 月" : `已录 ${monthList(a.months.filter(m => m.rows).map(m => m.month))}`;
+  const asp = items => { const paired = items.filter(r => r.qty !== null && r.revenue !== null), t = MC.total(paired); return t.qty > 0 ? t.revenue / t.qty : null; };
+  function amount(t, metric, digits = 0) {
+    const result = t[`${metric}Known`] ? (metric === "revenue" ? money(t[metric], digits) : num(t[metric])) : "—";
+    return result + (t.rows && !t[`${metric}Complete`] ? "<small>未录齐</small>" : "");
   }
-}
-
-function yearRecords(year = state.year) { return records.filter((row) => row.year === year); }
-function aggregate(items, keyFn) {
-  return [...group(items, keyFn)].map(([key, values]) => ({ key, qty: sum(values, "qty"), revenue: sum(values, "revenue"), rows: values }));
-}
-function monthly(year = state.year) {
-  const grouped = group(yearRecords(year), (row) => row.month);
-  return monthLabels.map((label, index) => {
-    const rows = grouped.get(index + 1) || [];
-    const skuAgg = aggregate(rows, (row) => row.sku).sort((a, b) => b.qty - a.qty);
-    return { month: index + 1, label, qty: sum(rows, "qty"), revenue: sum(rows, "revenue"), revenueRecorded: rows.some((row) => row.hasRevenue), skuCount: skuAgg.length, topSku: skuAgg[0]?.key || "—", hasData: rows.length > 0 };
-  });
-}
-
-function latestDataMonths(items) {
-  const qtyMonth = Math.max(0, ...items.map((row) => row.month));
-  const revenueMonth = Math.max(0, ...items.filter((row) => row.hasRevenue).map((row) => row.month));
-  return { qtyMonth, revenueMonth };
-}
-
-function maskAfterMonth(rows, cutoff, field) {
-  return rows.map((row) => row.month <= cutoff ? row : { ...row, [field]: 0 });
-}
-
-function svgEl(name, attrs = {}, text = "") {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
-  Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
-  if (text !== "") node.textContent = text;
-  return node;
-}
-
-function renderGroupedBars(targetId, current, prior, field, formatter) {
-  const target = document.getElementById(targetId);
-  const width = Math.max(720, target.clientWidth || 720), height = 320;
-  const margin = { top: 24, right: 18, bottom: 44, left: 66 };
-  const plotW = width - margin.left - margin.right, plotH = height - margin.top - margin.bottom;
-  const maxValue = Math.max(1, ...current.map((d) => d[field]), ...prior.map((d) => d[field]));
-  const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `${field} monthly chart` });
-  for (let i = 0; i <= 4; i += 1) {
-    const y = margin.top + plotH - (plotH * i / 4);
-    const value = maxValue * i / 4;
-    svg.append(svgEl("line", { x1: margin.left, y1: y, x2: width - margin.right, y2: y, stroke: "#e5e9e3", "stroke-width": 1 }));
-    svg.append(svgEl("text", { x: margin.left - 9, y: y + 4, "text-anchor": "end", fill: "#788078", "font-size": 10 }, formatter(value)));
+  function monthValue(year, month, metric, sku = null, level = state.level) {
+    const t = periodTotals.get(`${year}-${month}`);
+    if (!t?.[`${metric}Complete`]) return null;
+    if (sku === null) return t[metric];
+    const key = `${year}-${month}|${level}|${sku}`;
+    if (!productMonths.has(key)) productMonths.set(key, MC.total(rows(year, month).filter(r => r[level] === sku)));
+    return productMonths.get(key)[metric];
   }
-  const band = plotW / 12, barW = Math.min(19, band * .28);
-  current.forEach((row, index) => {
-    const center = margin.left + band * index + band / 2;
-    const priorValue = prior[index]?.[field] || 0;
-    const py = margin.top + plotH - (priorValue / maxValue) * plotH;
-    const cy = margin.top + plotH - (row[field] / maxValue) * plotH;
-    svg.append(svgEl("rect", { x: center - barW - 2, y: py, width: barW, height: Math.max(0, margin.top + plotH - py), rx: 2, fill: "#b7c0b5" }));
-    svg.append(svgEl("rect", { x: center + 2, y: cy, width: barW, height: Math.max(0, margin.top + plotH - cy), rx: 2, fill: "#117f89" }));
-    svg.append(svgEl("text", { x: center, y: height - 16, "text-anchor": "middle", fill: "#6d756f", "font-size": 10 }, row.label));
-  });
-  target.replaceChildren(svg);
-}
-
-function renderHorizontalBars(targetId, rows, field, formatter, limit = 10) {
-  const target = document.getElementById(targetId);
-  const values = rows.slice(0, limit);
-  if (!values.length) { target.innerHTML = '<div class="empty-chart">暂无数据</div>'; return; }
-  const width = Math.max(680, target.clientWidth || 680), height = Math.max(320, values.length * 34 + 58);
-  const margin = { top: 18, right: 88, bottom: 32, left: 122 };
-  const plotW = width - margin.left - margin.right, maxValue = Math.max(...values.map((d) => d[field]), 1);
-  const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}` });
-  values.forEach((row, index) => {
-    const y = margin.top + index * 34;
-    const barWidth = row[field] / maxValue * plotW;
-    svg.append(svgEl("text", { x: margin.left - 10, y: y + 15, "text-anchor": "end", fill: "#4f5852", "font-size": 11, "font-family": "IBM Plex Mono" }, String(row.key).replace(/-(ST|MN|AA|AC|AN)-/g, "-$1")));
-    svg.append(svgEl("rect", { x: margin.left, y, width: plotW, height: 20, rx: 4, fill: "#edf0eb" }));
-    svg.append(svgEl("rect", { x: margin.left, y, width: Math.max(1, barWidth), height: 20, rx: 4, fill: index === 0 ? "#257653" : "#0e7d86" }));
-    svg.append(svgEl("text", { x: margin.left + barWidth + 8, y: y + 15, fill: "#29312c", "font-size": 11, "font-weight": 700 }, formatter(row[field])));
-  });
-  svg.setAttribute("height", height);
-  target.replaceChildren(svg);
-}
-
-function renderPareto(targetId, rows) {
-  const target = document.getElementById(targetId);
-  const values = rows.slice(0, 12);
-  if (!values.length) { target.innerHTML = '<div class="empty-chart">暂无数据</div>'; return; }
-  const width = Math.max(760, target.clientWidth || 760), height = 425;
-  const margin = { top: 28, right: 58, bottom: 96, left: 54 };
-  const plotW = width - margin.left - margin.right, plotH = height - margin.top - margin.bottom;
-  const maxQty = Math.max(...values.map((d) => d.qty), 1), total = sum(rows, "qty");
-  const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}` });
-  for (let i = 0; i <= 4; i += 1) {
-    const y = margin.top + plotH - plotH * i / 4;
-    svg.append(svgEl("line", { x1: margin.left, y1: y, x2: width - margin.right, y2: y, stroke: "#e5e9e3" }));
-    svg.append(svgEl("text", { x: margin.left - 8, y: y + 4, "text-anchor": "end", fill: "#768078", "font-size": 10 }, number(maxQty * i / 4)));
+  function productValue(year, sku, months, metric, level = state.level) {
+    if (!months.length || months.some(m => monthValue(year, m, metric) === null)) return null;
+    return months.reduce((sum, month) => sum + monthValue(year, month, metric, sku, level), 0);
   }
-  const band = plotW / values.length, barW = Math.min(34, band * .58);
-  let running = 0, points = [];
-  values.forEach((row, index) => {
-    const x = margin.left + band * index + band / 2;
-    const y = margin.top + plotH - row.qty / maxQty * plotH;
-    running += row.qty;
-    const py = margin.top + plotH - running / total * plotH;
-    points.push(`${x},${py}`);
-    svg.append(svgEl("rect", { x: x - barW / 2, y, width: barW, height: margin.top + plotH - y, rx: 3, fill: index === 0 ? "#257653" : "#0e7d86" }));
-    svg.append(svgEl("text", { x, y: y - 7, "text-anchor": "middle", fill: "#4d5750", "font-size": 10, "font-weight": 700 }, number(row.qty)));
-    svg.append(svgEl("text", { x, y: height - 81, transform: `rotate(-48 ${x} ${height - 81})`, "text-anchor": "end", fill: "#68716b", "font-size": 9, "font-family": "IBM Plex Mono" }, row.key));
-  });
-  svg.append(svgEl("polyline", { points: points.join(" "), fill: "none", stroke: "#c77a19", "stroke-width": 2.5, "stroke-linejoin": "round" }));
-  points.forEach((point, index) => { const [x, y] = point.split(",").map(Number); svg.append(svgEl("circle", { cx: x, cy: y, r: 3.5, fill: "#c77a19", stroke: "#fff", "stroke-width": 1.5 })); if ([3, 7, 11].includes(index)) svg.append(svgEl("text", { x, y: y - 9, "text-anchor": "middle", fill: "#a36414", "font-size": 9 }, percent(values.slice(0, index + 1).reduce((t, d) => t + d.qty, 0) / total, 0))); });
-  target.replaceChildren(svg);
-}
+  function monthGrowth(year, month, metric, kind, sku = null, level = state.level) {
+    const py = kind === "yoy" ? year - 1 : month === 1 ? year - 1 : year;
+    const pm = kind === "yoy" ? month : month === 1 ? 12 : month - 1;
+    return MC.growth(monthValue(year, month, metric, sku, level), monthValue(py, pm, metric, sku, level));
+  }
+  function mini(label, value, product = false) { return `<div class="mini-metric"><small>${label}</small><strong${product ? ' class="product"' : ""}>${value}</strong></div>`; }
+  function empty(cols, text = "没有符合筛选条件的数据") { return `<tr><td class="empty" colspan="${cols}">${text}</td></tr>`; }
 
-function renderKpis() {
-  const currentRows = yearRecords(), priorRows = yearRecords(state.year - 1);
-  const currentQty = sum(currentRows, "qty"), currentRevenue = sum(currentRows, "revenue");
-  const { qtyMonth, revenueMonth } = latestDataMonths(currentRows);
-  const priorQty = sum(priorRows.filter((row) => row.month <= qtyMonth), "qty");
-  const priorRevenue = sum(priorRows.filter((row) => row.month <= revenueMonth), "revenue");
-  const revenueQty = sum(currentRows.filter((row) => row.hasRevenue), "qty");
-  const skuRows = aggregate(currentRows, (row) => row.sku).sort((a, b) => b.qty - a.qty);
-  const modelRows = aggregate(currentRows, (row) => row.model).sort((a, b) => b.revenue - a.revenue);
-  const cards = [
-    ["YTD REV", money(currentRevenue), `${state.year} Jan–${monthLabels[revenueMonth - 1]} · REV 已录`],
-    ["YTD QTY", number(currentQty), `${state.year} Jan–${monthLabels[qtyMonth - 1]} · sell-out`],
-    ["REV 同比", percent(growth(currentRevenue, priorRevenue)), `${state.year - 1} Jan–${monthLabels[revenueMonth - 1]} ${money(priorRevenue)}`, tone(growth(currentRevenue, priorRevenue))],
-    ["QTY 同比", percent(growth(currentQty, priorQty)), `${state.year - 1} Jan–${monthLabels[qtyMonth - 1]} ${number(priorQty)} units`, tone(growth(currentQty, priorQty))],
-    ["平均 ASP", money(currentRevenue / Math.max(revenueQty, 1)), `截至 ${monthLabels[revenueMonth - 1]} · REV / QTY`],
-    ["销量第一 SKU", skuRows[0]?.key || "—", `${number(skuRows[0]?.qty)} units`, "mono"],
-  ];
-  document.getElementById("kpiGrid").innerHTML = cards.map(([label, value, sub, className = ""]) => `<article class="panel kpi"><div class="kpi-label">${label}</div><div class="kpi-value ${className}">${escapeHtml(value)}</div><div class="kpi-sub">${escapeHtml(sub)}</div></article>`).join("");
+  function chart(id, metric, sku = null) {
+    const current = MC.MONTHS.map(m => monthValue(state.year, m, metric, sku));
+    const prior = MC.MONTHS.map(m => monthValue(state.year - 1, m, metric, sku));
+    const values = [...current, ...prior].filter(v => v !== null);
+    const w = 590, h = 275, left = 54, right = 10, top = 25, bottom = 34;
+    const max = Math.max(1, ...values), min = Math.min(0, ...values), upper = max * 1.13, lower = min * 1.13;
+    const y = value => top + (upper - value) / (upper - lower) * (h - top - bottom), baseline = y(0);
+    const step = (w - left - right) / 12;
+    const format = value => metric === "revenue" ? money(value, 2) : num(value);
+    let svg = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(sku || "Micro Center")} ${state.year} 年月度${metric === "revenue" ? "营收" : "销量"}，明细见下方表格"><title>${state.year} 与 ${state.year - 1} 同月对照</title>`;
+    for (let i = 0; i <= 4; i++) {
+      const value = lower + (upper - lower) * i / 4, ypos = y(value);
+      const label = metric === "revenue" ? `${value < 0 ? "−" : ""}$${num(Math.abs(value) / 1000, 0)}k` : num(value);
+      svg += `<line x1="${left}" y1="${ypos}" x2="${w - right}" y2="${ypos}" stroke="#e5e8df"/><text x="${left - 9}" y="${ypos + 4}" text-anchor="end">${label}</text>`;
+    }
+    for (let i = 0; i < 12; i++) {
+      const center = left + (i + .5) * step;
+      svg += `<g class="chart-hit"${sku === null ? ` tabindex="0" role="button" data-month="${i + 1}" aria-label="查看 ${state.year} 年 ${i + 1} 月 SKU 明细"` : ""}><title>${i + 1}月：${state.year} ${format(current[i])}；${state.year - 1} ${format(prior[i])}</title>`;
+      for (const [value, x, color] of [[prior[i], center - 13, "#c7baa4"], [current[i], center + 1, "#0f766e"]]) {
+        if (value !== null) svg += `<rect x="${x}" y="${Math.min(y(value), baseline)}" width="11" height="${Math.max(value === 0 ? 1 : 0, Math.abs(baseline - y(value)))}" rx="2" fill="${color}"/>`;
+      }
+      if (current[i] === null) svg += `<text x="${center + 6}" y="${baseline - 4}" text-anchor="middle">—</text>`;
+      svg += `<text x="${center}" y="${h - 10}" text-anchor="middle">${i + 1}月</text></g>`;
+    }
+    $(id).innerHTML = svg + "</svg>";
+  }
 
-  const currentMonthly = monthly(), priorMonthly = monthly(state.year - 1);
-  const latestQty = currentMonthly[qtyMonth - 1];
-  const latestRevenue = currentMonthly[revenueMonth - 1], priorLatestRevenue = priorMonthly[revenueMonth - 1];
-  const latestGrowth = growth(latestRevenue.revenue, priorLatestRevenue.revenue);
-  document.getElementById("conclusionPeriod").textContent = `QTY 至 ${state.year}.${String(qtyMonth).padStart(2, "0")} ｜ REV 至 ${state.year}.${String(revenueMonth).padStart(2, "0")}`;
-  document.getElementById("conclusionText").innerHTML = qtyMonth > revenueMonth
-    ? `${qtyMonth}月已录销量 <strong>${number(latestQty.qty)} units</strong>，本月销量第一 SKU 为 <strong>${escapeHtml(latestQty.topSku)}</strong>；REV 尚未录入至 ${qtyMonth}月。最近完整营收月为 ${revenueMonth}月：<strong>${money(latestRevenue.revenue)}</strong>，同比 <span class="${tone(latestGrowth)}">${percent(latestGrowth)}</span>。`
-    : `${qtyMonth}月 Micro Center 录入营收 <strong>${money(latestRevenue.revenue)}</strong>、销量 <strong>${number(latestQty.qty)} units</strong>，营收同比 <span class="${tone(latestGrowth)}">${percent(latestGrowth)}</span>；本月贡献最高 SKU 为 <strong>${escapeHtml(latestQty.topSku)}</strong>。`;
-  document.getElementById("coverageBadge").textContent = `QTY ${qtyMonth}/12 · REV ${revenueMonth}/12`;
-  document.getElementById("coverageBadge").classList.toggle("good", qtyMonth >= 12 && revenueMonth >= 12);
-  document.getElementById("yearProgress").style.width = `${qtyMonth / 12 * 100}%`;
-  document.getElementById("insightMetrics").innerHTML = [
-    ["QTY / REV 周期", `${state.year}.${String(qtyMonth).padStart(2, "0")} / ${state.year}.${String(revenueMonth).padStart(2, "0")}`],
-    ["同期营收", money(priorRevenue)],
-    ["营收增量", money(currentRevenue - priorRevenue)],
-    ["活跃 SKU", `${skuRows.length}`],
-    ["主力 Model", modelRows[0]?.key || "—"],
-  ].map(([dt, dd]) => `<div><dt>${dt}</dt><dd>${escapeHtml(dd)}</dd></div>`).join("");
-  const topModelShare = modelRows[0] ? modelRows[0].revenue / currentRevenue : 0;
-  const topSkuShare = skuRows[0] ? skuRows[0].qty / currentQty : 0;
-  const periodNote = qtyMonth > revenueMonth
-    ? `QTY 已更新到 ${qtyMonth}月，REV 仅更新到 ${revenueMonth}月；营收同比统一按 1–${revenueMonth}月计算。`
-    : `QTY 与 REV 均已更新到 ${qtyMonth}月，同比使用相同月份口径。`;
-  document.getElementById("insightNotes").innerHTML = `
-    <div class="insight-note">${escapeHtml(modelRows[0]?.key || "—")} 是当前主力 Model，贡献 ${percent(topModelShare)} 的 YTD 营收。</div>
-    <div class="insight-note ${revenueMonth < qtyMonth ? "warning" : ""}">${periodNote}</div>
-    <div class="insight-note ${latestGrowth < 0 ? "warning" : ""}">${revenueMonth}月营收同比 ${percent(latestGrowth)}，${latestGrowth >= 0 ? "保持正向增长。" : "需要复核活动、供货与门店动销。"}</div>
-    <div class="insight-note">销量第一 SKU 占 YTD QTY 的 ${percent(topSkuShare)}，组合集中度${topSkuShare > .25 ? "较高" : "相对健康"}。</div>`;
-  return { currentRows, skuRows, modelRows, qtyMonth, revenueMonth };
-}
-
-function renderOverview() {
-  const { skuRows, modelRows, revenueMonth } = renderKpis();
-  const current = maskAfterMonth(monthly(), revenueMonth, "revenue");
-  const prior = maskAfterMonth(monthly(state.year - 1), revenueMonth, "revenue");
-  document.getElementById("overviewRevenueNote").textContent = `REV 已录至 ${revenueMonth}月，仅比较 1–${revenueMonth}月`;
-  renderGroupedBars("overviewMonthlyChart", current, prior, "revenue", (v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
-  renderHorizontalBars("modelMixChart", modelRows, "revenue", money, 9);
-  const maxQty = Math.max(...skuRows.map((row) => row.qty), 1);
-  document.getElementById("topSkuList").innerHTML = skuRows.slice(0, 8).map((row, index) => `<div class="rank-row"><span class="rank-number">${String(index + 1).padStart(2, "0")}</span><span class="rank-sku" title="${escapeHtml(row.key)}">${escapeHtml(row.key)}</span><span class="rank-track"><span style="width:${row.qty / maxQty * 100}%"></span></span><span class="rank-value">${number(row.qty)}</span></div>`).join("");
-}
-
-function renderMonthly() {
-  const current = monthly(), prior = monthly(state.year - 1);
-  const { revenueMonth } = latestDataMonths(yearRecords());
-  document.getElementById("monthlyRevenueNote").textContent = `USD · 已录至 ${revenueMonth}月`;
-  renderGroupedBars("monthlyRevenueChart", maskAfterMonth(current, revenueMonth, "revenue"), maskAfterMonth(prior, revenueMonth, "revenue"), "revenue", (v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
-  renderGroupedBars("monthlyQtyChart", current, prior, "qty", (v) => number(v));
-  document.getElementById("monthlyTableBody").innerHTML = current.filter((row) => row.hasData).map((row) => {
-    const priorRow = prior[row.month - 1];
-    const qGrowth = growth(row.qty, priorRow.qty), rGrowth = row.revenueRecorded ? growth(row.revenue, priorRow.revenue) : NaN;
-    const revenueCell = row.revenueRecorded ? money(row.revenue) : '<span class="pending-value">待录入</span>';
-    const aspCell = row.revenueRecorded ? money(row.revenue / Math.max(row.qty, 1)) : "—";
-    return `<tr><td>${state.year} ${row.label}</td><td>${number(row.qty)}</td><td class="${tone(qGrowth)}">${percent(qGrowth)}</td><td>${revenueCell}</td><td class="${tone(rGrowth)}">${percent(rGrowth)}</td><td>${aspCell}</td><td>${row.skuCount}</td><td class="mono">${escapeHtml(row.topSku)}</td></tr>`;
-  }).join("");
-}
-
-function monthlySkuRows(year, month) {
-  const current = records.filter((row) => row.year === year && row.month === month);
-  const prior = records.filter((row) => row.year === year - 1 && row.month === month);
-  const priorMap = new Map(aggregate(prior, (row) => row.sku).map((row) => [row.key, row]));
-  return aggregate(current, (row) => row.sku).map((row) => {
-    const priorRow = priorMap.get(row.key);
-    return {
-      ...row,
-      model: row.rows[0]?.model || "—",
-      revenueRecorded: row.rows.some((item) => item.hasRevenue),
-      priorQty: priorRow?.qty || 0,
-      priorRevenue: priorRow?.revenue || 0,
-    };
-  }).sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
-}
-
-function renderMonthSkuMatrix(filteredSkus) {
-  const metric = state.matrixMetric;
-  const dataMap = new Map();
-  yearRecords().forEach((row) => {
-    const key = `${row.sku}::${row.month}`;
-    if (!dataMap.has(key)) dataMap.set(key, { qty: 0, revenue: 0, revenueRecorded: false });
-    const cell = dataMap.get(key);
-    cell.qty += row.qty;
-    cell.revenue += row.revenue;
-    cell.revenueRecorded ||= row.hasRevenue;
-  });
-  const values = [];
-  filteredSkus.forEach((row) => monthLabels.forEach((_, index) => {
-    const cell = dataMap.get(`${row.key}::${index + 1}`);
-    if (cell && (metric === "qty" || cell.revenueRecorded)) values.push(cell[metric]);
-  }));
-  const maxValue = Math.max(1, ...values);
-  const totals = monthLabels.map((_, index) => {
-    const monthRows = yearRecords().filter((row) => row.month === index + 1);
-    return { qty: sum(monthRows, "qty"), revenue: sum(monthRows, "revenue"), revenueRecorded: monthRows.some((row) => row.hasRevenue) };
-  });
-  document.getElementById("monthSkuMatrixHead").innerHTML = `<tr><th>SKU</th><th>Model</th>${monthLabels.map((label) => `<th>${label}</th>`).join("")}<th>Total</th></tr>`;
-  const body = filteredSkus.map((row) => {
-    let rowTotal = 0;
-    const cells = monthLabels.map((_, index) => {
-      const cell = dataMap.get(`${row.key}::${index + 1}`);
-      if (!cell) return '<td class="matrix-cell zero">—</td>';
-      if (metric === "revenue" && !cell.revenueRecorded) return '<td class="matrix-cell pending">待录</td>';
-      const value = cell[metric];
-      rowTotal += value;
-      const heat = value ? (.08 + value / maxValue * .48).toFixed(3) : 0;
-      const display = metric === "revenue" ? (value >= 1000 ? `$${number(value / 1000, 1)}k` : money(value)) : number(value);
-      return `<td class="matrix-cell ${value ? "" : "zero"}" style="--heat:${heat}">${display}</td>`;
+  function renderAnnual() {
+    const a = selected(), revYoY = MC.comparison(records, state.year, "revenue"), qtyYoY = MC.comparison(records, state.year, "qty");
+    const complete = a.revenueMonths.length === 12 && a.qtyMonths.length === 12;
+    $("annualYear").textContent = $("navYear").textContent = state.year;
+    document.title = `Micro Center | ${state.year} 年度销售看板`;
+    $("annualPeriod").textContent = `${state.year} 年 ${yearPeriod(a)}`;
+    $("coverageBadge").textContent = complete ? "12 / 12 个月已录齐" : `销量 ${a.qtyMonths.length}/12 · 营收 ${a.revenueMonths.length}/12`;
+    $("coverageBadge").classList.toggle("incomplete", !complete);
+    const scope = complete ? "全年" : "已录";
+    const cards = [
+      [`${scope}营收 REV`, a.revenueKnown ? money(a.revenue, 2) : "—", `USD · ${a.rows} 条原表记录`],
+      [`${scope}销量 QTY`, a.qtyKnown ? num(a.qty) : "—", `${state.year} 年 · ${monthList(a.qtyMonths)}`],
+      [a.revenueMonths.length === 12 ? "营收年度同比" : "营收已录月份同比", delta(revYoY.value), `对照 ${state.year - 1} 年 ${monthList(revYoY.months)}`],
+      [a.qtyMonths.length === 12 ? "销量年度同比" : "销量已录月份同比", delta(qtyYoY.value), `上年同期 ${num(qtyYoY.prior)} units`],
+      ["平均单价 ASP", money(asp(rows()), 2), "营收 ÷ 对应销量"],
+      ["有记录的完整 SKU", num(a.skuCount), `${new Set(rows().map(r => r.baseSku)).size} 个基础 SKU`],
+    ];
+    $("kpiGrid").innerHTML = cards.map(([label, value, note]) => `<article class="kpi"><span class="kpi-label">${label}</span><div class="kpi-value">${value}</div><small>${note}</small></article>`).join("");
+    const peak = a.months.filter(m => m.revenueKnown).sort((x, y) => y.revenue - x.revenue)[0];
+    const top = MC.byProduct(rows())[0];
+    $("conclusionTitle").textContent = revYoY.value === null ? `${state.year} 年${scope}营收 ${money(a.revenue)}` : `${scope}营收同比${revYoY.value >= 0 ? "增长" : "下降"} ${share(Math.abs(revYoY.value))}`;
+    $("conclusionText").textContent = top && peak ? `${peak.month} 月营收最高，达 ${money(peak.revenue, 2)}，占${scope}营收 ${share(a.revenue ? peak.revenue / a.revenue : null)}。${top.key} 贡献 ${money(top.revenue, 2)}，占比 ${share(a.revenue ? top.revenue / a.revenue : null)}。${!complete ? "部分月份尚未录齐，以上为已录数据。" : ""}` : "暂无可汇总的原表记录。";
+    $("quarterGrid").innerHTML = [1, 2, 3, 4].map(q => {
+      const items = rows().filter(r => Math.ceil(r.month / 3) === q), t = MC.total(items), covered = a.revenueMonths.filter(m => Math.ceil(m / 3) === q).length;
+      return `<div class="quarter"><span>Q${q} · ${(q - 1) * 3 + 1}–${q * 3}月</span><strong>${t.revenueKnown ? money(t.revenue) : "—"}</strong><small>${t.qtyKnown ? num(t.qty) + " units" : "未录"}${covered < 3 ? ` · 营收 ${covered}/3 月` : ""}</small></div>`;
     }).join("");
-    return `<tr><td class="mono">${escapeHtml(row.key)}</td><td>${escapeHtml(row.model)}</td>${cells}<td>${metric === "revenue" ? money(rowTotal) : number(rowTotal)}</td></tr>`;
-  }).join("");
-  const totalCells = totals.map((cell) => metric === "revenue" && !cell.revenueRecorded ? '<td class="pending-value">待录</td>' : `<td>${metric === "revenue" ? money(cell.revenue) : number(cell.qty)}</td>`).join("");
-  document.getElementById("monthSkuMatrixBody").classList.toggle("matrix-revenue", metric === "revenue");
-  document.getElementById("monthSkuMatrixBody").innerHTML = `${body}<tr class="matrix-total"><td>月度合计</td><td>—</td>${totalCells}<td>${metric === "revenue" ? money(sum(yearRecords(), "revenue")) : number(sum(yearRecords(), "qty"))}</td></tr>`;
-}
+    const comparisonYears = [...new Set([state.year - 1, state.year, Math.max(...years)])].filter(y => years.includes(y));
+    $("yearComparison").innerHTML = comparisonYears.map(y => { const t = MC.annual(records, y); return `<article class="year-card ${y === state.year ? "selected" : ""}"><span class="year-name">${y}</span><span class="year-period">${yearPeriod(t)}</span><strong>${money(t.revenue)}</strong><span class="year-qty">${num(t.qty)}</span><small>营收 USD</small><small class="right">销量 units</small></article>`; }).join("");
+  }
 
-function renderMonthSku() {
-  const availableMonths = [...new Set(yearRecords().map((row) => row.month))].sort((a, b) => a - b);
-  if (!availableMonths.includes(Number(state.monthSkuMonth))) state.monthSkuMonth = Math.max(...availableMonths);
-  const select = document.getElementById("monthSkuSelect");
-  select.innerHTML = availableMonths.slice().reverse().map((month) => `<option value="${month}">${state.year}年 ${month}月</option>`).join("");
-  select.value = state.monthSkuMonth;
+  function renderMonthly() {
+    document.querySelectorAll(".selected-year").forEach(el => el.textContent = state.year);
+    document.querySelectorAll(".prior-year").forEach(el => el.textContent = state.year - 1);
+    chart("revenueChart", "revenue"); chart("qtyChart", "qty");
+    $("monthlyBody").innerHTML = selected().months.map(t => {
+      const items = rows(state.year, t.month), top = MC.byProduct(items)[0];
+      return `<tr><td><button class="text-button" data-month="${t.month}">${state.year}-${String(t.month).padStart(2, "0")}</button></td><td>${amount(t, "qty")}</td><td>${amount(t, "revenue", 2)}</td><td>${delta(monthGrowth(state.year, t.month, "qty", "mom"))}</td><td>${delta(monthGrowth(state.year, t.month, "revenue", "mom"))}</td><td>${delta(monthGrowth(state.year, t.month, "qty", "yoy"))}</td><td>${delta(monthGrowth(state.year, t.month, "revenue", "yoy"))}</td><td>${money(asp(items), 2)}</td><td class="product">${top ? esc(top.key) : "—"}</td></tr>`;
+    }).join("");
+    const a = selected();
+    $("monthlyFoot").innerHTML = `<tr><td>${a.year} 年合计</td><td>${amount(a, "qty")}</td><td>${amount(a, "revenue", 2)}</td><td>—</td><td>—</td><td>${delta(MC.comparison(records, state.year, "qty").value)}</td><td>${delta(MC.comparison(records, state.year, "revenue").value)}</td><td>${money(asp(rows()), 2)}</td><td>${a.skuCount} 个 SKU</td></tr>`;
+  }
 
-  const allRows = monthlySkuRows(state.year, state.monthSkuMonth);
-  const query = state.monthSkuQuery.trim().toLowerCase();
-  const filtered = allRows.filter((row) => !query || `${row.key} ${row.model}`.toLowerCase().includes(query));
-  const yearSkuRows = aggregate(yearRecords(), (row) => row.sku).map((row) => ({ ...row, model: row.rows[0]?.model || "—" })).sort((a, b) => b.qty - a.qty);
-  const filteredYearSkus = yearSkuRows.filter((row) => !query || `${row.key} ${row.model}`.toLowerCase().includes(query));
-  const totalQty = sum(allRows, "qty"), totalRevenue = sum(allRows, "revenue");
-  const revenueRecorded = allRows.some((row) => row.revenueRecorded);
-  const modelRows = aggregate(allRows.flatMap((row) => row.rows), (row) => row.model).sort((a, b) => b.qty - a.qty);
-  const cards = [
-    ["本月 QTY", number(totalQty), `${allRows.length} 个活跃 SKU`],
-    ["本月 REV", revenueRecorded ? money(totalRevenue) : "待录入", revenueRecorded ? "源表已录 REV" : "当前仅有 QTY", revenueRecorded ? "" : "pending-value"],
-    ["销量第一 SKU", allRows[0]?.key || "—", `${number(allRows[0]?.qty)} units`, "mono"],
-    ["主力 Model", modelRows[0]?.key || "—", `${number(modelRows[0]?.qty)} units`],
-    ["平均 ASP", revenueRecorded ? money(totalRevenue / Math.max(totalQty, 1)) : "—", revenueRecorded ? "REV / QTY" : "等待 REV"],
-  ];
-  document.getElementById("monthSkuKpis").innerHTML = cards.map(([label, value, sub, className = ""]) => `<article class="panel kpi"><div class="kpi-label">${label}</div><div class="kpi-value ${className}">${escapeHtml(value)}</div><div class="kpi-sub">${escapeHtml(sub)}</div></article>`).join("");
-  document.getElementById("monthSkuTableTitle").textContent = `${state.year}年${state.monthSkuMonth}月 SKU 明细`;
-  document.getElementById("monthSkuTableNote").textContent = revenueRecorded ? "QTY、REV 与上年同月逐 SKU 对照" : "本月 REV 尚未录入，先展示 QTY 与 QTY 同比";
-  document.getElementById("monthSkuCount").textContent = `${filtered.length} / ${allRows.length} 个 SKU`;
-  document.getElementById("monthSkuTableBody").innerHTML = filtered.map((row) => {
-    const qtyGrowth = growth(row.qty, row.priorQty);
-    const revenueGrowth = row.revenueRecorded ? growth(row.revenue, row.priorRevenue) : NaN;
-    return `<tr><td>${allRows.indexOf(row) + 1}</td><td class="mono">${escapeHtml(row.key)}</td><td>${escapeHtml(row.model)}</td><td>${number(row.qty)}</td><td>${percent(row.qty / Math.max(totalQty, 1))}</td><td class="${tone(qtyGrowth)}">${percent(qtyGrowth)}</td><td>${row.revenueRecorded ? money(row.revenue) : '<span class="pending-value">待录入</span>'}</td><td class="${tone(revenueGrowth)}">${percent(revenueGrowth)}</td><td>${row.revenueRecorded ? money(row.revenue / Math.max(row.qty, 1)) : "—"}</td></tr>`;
-  }).join("");
-  renderMonthSkuMatrix(filteredYearSkus);
-}
+  function renderMonthSku() {
+    const items = rows(state.year, state.month), t = MC.total(items);
+    const products = MC.byProduct(items), filtered = products.filter(p => p.key.toLowerCase().includes(state.monthSearch.toLowerCase()));
+    $("monthDetailTitle").textContent = `${state.year} 年 ${state.month} 月 SKU 明细`;
+    $("monthMetrics").innerHTML = mini("本月营收", t.revenueKnown ? money(t.revenue, 2) : "—") + mini("本月销量", t.qtyKnown ? num(t.qty) : "—") + mini("本月完整 SKU", num(products.length)) + mini("本月平均单价", money(asp(items), 2));
+    $("monthSkuBody").innerHTML = filtered.map(p => `<tr><td><button class="text-button" data-sku="${esc(p.key)}" data-level="sku">${esc(p.key)}</button></td><td>${esc(p.key.split("-")[0])}</td><td>${amount(p, "qty")}</td><td>${amount(p, "revenue", 2)}</td><td>${t.revenueComplete && p.revenueComplete ? share(t.revenue ? p.revenue / t.revenue : null) : "—"}</td><td>${money(asp(items.filter(r => r.sku === p.key)), 2)}</td><td>${delta(monthGrowth(state.year, state.month, "qty", "yoy", p.key, "sku"))}</td><td>${delta(monthGrowth(state.year, state.month, "revenue", "yoy", p.key, "sku"))}</td></tr>`).join("") || empty(8, items.length ? undefined : "该月原表暂无 MC 数据");
+    const ft = MC.total(items.filter(r => filtered.some(p => p.key === r.sku)));
+    $("monthSkuFoot").innerHTML = `<tr><td>${state.monthSearch ? "筛选合计" : "当月合计"} · ${filtered.length} 个 SKU</td><td>—</td><td>${amount(ft, "qty")}</td><td>${amount(ft, "revenue", 2)}</td><td colspan="4">${state.monthSearch ? `全月营收 ${money(t.revenue, 2)}` : "同月同 SKU 的多行记录已合并"}</td></tr>`;
+  }
 
-function renderSku() {
-  const current = yearRecords(), prior = yearRecords(state.year - 1);
-  const priorMap = new Map(aggregate(prior, (row) => row.sku).map((row) => [row.key, row]));
-  const totalRevenue = sum(current, "revenue");
-  const skuRows = aggregate(current, (row) => row.sku).map((row) => ({ ...row, model: row.rows[0]?.model || "—", revenueQty: sum(row.rows.filter((item) => item.hasRevenue), "qty"), priorQty: priorMap.get(row.key)?.qty || 0 })).sort((a, b) => b.qty - a.qty);
-  const modelRows = aggregate(current, (row) => row.model).sort((a, b) => b.revenue - a.revenue);
-  renderPareto("paretoChart", skuRows);
-  renderHorizontalBars("modelPerformanceChart", modelRows, "revenue", money, 11);
-  const query = state.skuQuery.trim().toLowerCase();
-  const filtered = skuRows.filter((row) => !query || `${row.key} ${row.model}`.toLowerCase().includes(query));
-  document.getElementById("skuCountLabel").textContent = `${filtered.length} 个 SKU`;
-  document.getElementById("skuTableBody").innerHTML = filtered.map((row) => {
-    const qGrowth = growth(row.qty, row.priorQty);
-    return `<tr><td class="mono">${escapeHtml(row.key)}</td><td>${escapeHtml(row.model)}</td><td>${number(row.qty)}</td><td>${money(row.revenue)}</td><td>${money(row.revenue / Math.max(row.revenueQty, 1))}</td><td>${percent(row.revenue / totalRevenue)}</td><td>${number(row.priorQty)}</td><td class="${tone(qGrowth)}">${percent(qGrowth)}</td></tr>`;
-  }).join("");
-}
+  function renderMatrix() {
+    const products = MC.byProduct(rows(), state.level).filter(p => p.key.toLowerCase().includes(state.matrixSearch.toLowerCase())).sort((a, b) => b[state.metric] - a[state.metric]);
+    const format = state.metric === "revenue" ? v => money(v) : v => num(v);
+    const a = selected(), covered = a.months.filter(m => m.rows).map(m => m.month);
+    const values = products.flatMap(p => MC.MONTHS.map(m => monthValue(state.year, m, state.metric, p.key))).filter(v => v !== null);
+    const max = Math.max(1, ...values);
+    $("matrixNote").textContent = `${state.year} · ${state.level === "sku" ? "完整 SKU" : "基础 SKU"} · ${products.length} 行 · ${state.metric === "revenue" ? "营收 USD，显示取整" : "销量 units"}`;
+    $("matrixHead").innerHTML = `<tr><th>SKU</th>${MC.MONTHS.map(m => `<th>${m}月</th>`).join("")}<th>年度合计</th><th>上年同期</th><th>同比</th></tr>`;
+    $("matrixBody").innerHTML = products.map(p => {
+      const current = productValue(state.year, p.key, covered, state.metric), prior = productValue(state.year - 1, p.key, covered, state.metric);
+      return `<tr><td><button class="text-button" data-sku="${esc(p.key)}" data-level="${state.level}">${esc(p.key)}</button></td>${MC.MONTHS.map(m => { const v = monthValue(state.year, m, state.metric, p.key); return `<td title="${m}月 ${v === null ? "未录齐" : state.metric === "revenue" ? money(v, 2) : num(v)}" style="background:${v !== null && v > 0 ? `rgba(15,118,110,${.035 + .2 * v / max})` : "transparent"}">${format(v)}</td>`; }).join("")}<td class="matrix-total">${format(current)}</td><td>${format(prior)}</td><td>${delta(MC.growth(current, prior))}</td></tr>`;
+    }).join("") || empty(16);
+    const productKeys = new Set(products.map(p => p.key));
+    const filtered = rows().filter(r => productKeys.has(r[state.level]));
+    $("matrixFoot").innerHTML = `<tr><td>${state.matrixSearch ? "筛选合计" : "月度合计"}</td>${MC.MONTHS.map(m => `<td>${monthValue(state.year, m, state.metric) === null ? "—" : format(MC.total(filtered.filter(r => r.month === m))[state.metric])}</td>`).join("")}<td>${format(MC.total(filtered)[state.metric])}</td><td colspan="2">${products.length} 个 ${state.level === "sku" ? "SKU" : "基础 SKU"}</td></tr>`;
+  }
 
-function renderRawData() {
-  const rows = yearRecords().sort((a, b) => b.month - a.month || b.revenue - a.revenue);
-  document.getElementById("rawTableBody").innerHTML = rows.map((row) => `<tr><td>${row.year}</td><td>${String(row.month).padStart(2, "0")}</td><td>MC</td><td class="mono">${escapeHtml(row.sku)}</td><td>${escapeHtml(row.model)}</td><td>${number(row.qty)}</td><td>${row.hasRevenue ? money(row.revenue) : '<span class="pending-value">待录入</span>'}</td></tr>`).join("");
-}
+  function renderSkuTrend() {
+    const items = rows().filter(r => r[state.level] === state.sku);
+    const months = selected().months.filter(m => m.rows).map(m => m.month);
+    const revenue = productValue(state.year, state.sku, months, "revenue"), qty = productValue(state.year, state.sku, months, "qty");
+    $("skuMetrics").innerHTML = mini("所选 SKU", esc(state.sku || "—"), true) + mini("本年营收", money(revenue, 2)) + mini("本年销量", num(qty)) + mini("平均单价", money(asp(items), 2));
+    chart("skuRevenueChart", "revenue", state.sku); chart("skuQtyChart", "qty", state.sku);
+    $("skuTrendBody").innerHTML = MC.MONTHS.map(m => { const q = monthValue(state.year, m, "qty", state.sku), v = monthValue(state.year, m, "revenue", state.sku); return `<tr><td>${state.year}-${String(m).padStart(2, "0")}</td><td>${num(q)}</td><td>${money(v, 2)}</td><td>${q > 0 && v !== null ? money(v / q, 2) : "—"}</td><td>${delta(monthGrowth(state.year, m, "qty", "mom", state.sku))}</td><td>${delta(monthGrowth(state.year, m, "revenue", "mom", state.sku))}</td><td>${delta(monthGrowth(state.year, m, "qty", "yoy", state.sku))}</td><td>${delta(monthGrowth(state.year, m, "revenue", "yoy", state.sku))}</td></tr>`; }).join("");
+  }
 
-function renderAll() {
-  renderOverview(); renderMonthly(); renderMonthSku(); renderSku(); renderRawData();
-}
+  function renderSkuSummary() {
+    const a = selected(), months = a.months.filter(m => m.rows).map(m => m.month);
+    const keys = [...new Set([...rows(), ...rows(state.year - 1).filter(r => months.includes(r.month))].map(r => r[state.level]))];
+    summaryExport = keys.map(key => {
+      const qty = productValue(state.year, key, months, "qty"), revenue = productValue(state.year, key, months, "revenue");
+      const pq = productValue(state.year - 1, key, months, "qty"), pr = productValue(state.year - 1, key, months, "revenue");
+      return { key, pq, qty, qyoy: MC.growth(qty, pq), pr, revenue, ryoy: MC.growth(revenue, pr), asp: qty > 0 && revenue !== null ? revenue / qty : null, share: a.revenue && revenue !== null ? revenue / a.revenue : null };
+    }).sort((x, y) => (y.revenue || 0) - (x.revenue || 0));
+    $("skuSummaryBody").innerHTML = summaryExport.map(p => `<tr><td><button class="text-button" data-sku="${esc(p.key)}" data-level="${state.level}">${esc(p.key)}</button></td><td>${num(p.pq)}</td><td>${num(p.qty)}</td><td>${delta(p.qyoy)}</td><td>${money(p.pr, 2)}</td><td>${money(p.revenue, 2)}</td><td>${delta(p.ryoy)}</td><td>${money(p.asp, 2)}</td><td>${share(p.share)}</td></tr>`).join("");
+    $("skuSummaryFoot").innerHTML = `<tr><td>${state.year} 年合计</td><td>${num(MC.comparison(records, state.year, "qty").prior)}</td><td>${amount(a, "qty")}</td><td>${delta(MC.comparison(records, state.year, "qty").value)}</td><td>${money(MC.comparison(records, state.year, "revenue").prior, 2)}</td><td>${amount(a, "revenue", 2)}</td><td>${delta(MC.comparison(records, state.year, "revenue").value)}</td><td>${money(asp(rows()), 2)}</td><td>${a.revenueComplete && a.revenue ? "100.0%" : "—"}</td></tr>`;
+  }
 
-document.getElementById("yearSelect").addEventListener("change", (event) => { state.year = Number(event.target.value); renderAll(); });
-document.getElementById("resetFilters").addEventListener("click", () => {
-  state.year = latestYear; state.skuQuery = ""; state.monthSkuMonth = null; state.monthSkuQuery = ""; state.matrixMetric = "qty";
-  document.getElementById("yearSelect").value = latestYear;
-  document.getElementById("skuSearch").value = "";
-  document.getElementById("monthSkuSearch").value = "";
-  document.querySelectorAll("[data-matrix-metric]").forEach((item) => item.classList.toggle("active", item.dataset.matrixMetric === "qty"));
-  renderAll();
-});
-document.getElementById("refreshData").addEventListener("click", () => syncLiveData({ manual: true }));
-document.getElementById("skuSearch").addEventListener("input", (event) => { state.skuQuery = event.target.value; renderSku(); });
-document.getElementById("monthSkuSelect").addEventListener("change", (event) => { state.monthSkuMonth = Number(event.target.value); renderMonthSku(); });
-document.getElementById("monthSkuSearch").addEventListener("input", (event) => { state.monthSkuQuery = event.target.value; renderMonthSku(); });
-document.querySelectorAll("[data-matrix-metric]").forEach((button) => button.addEventListener("click", () => {
-  state.matrixMetric = button.dataset.matrixMetric;
-  document.querySelectorAll("[data-matrix-metric]").forEach((item) => item.classList.toggle("active", item === button));
-  renderMonthSku();
-}));
-document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
-  document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item === tab));
-  document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${tab.dataset.view}`));
-}));
+  function renderSource() {
+    const a = selected();
+    const cells = [["数据来源", `<a href="${MC.SOURCE.url}" target="_blank" rel="noopener noreferrer">${MC.SOURCE.sheetName} ↗</a><br />渠道 MC · A:H 原始明细`], ["当前年份记录", `<strong>${num(a.rows)}</strong> 行<br />${state.year} 年 · 全表 MC ${records.length} 行`], ["营收录入覆盖", `<strong>${a.revenueMonths.length} / 12</strong> 月<br />${a.rows - a.revenueKnown} 行营收空缺`], ["数据读取时间", `${stamp(state.snapshot?.fetchedAt)}<br />${state.sourceKind === "live" ? "本次在线读取" : "保存的快照，非本次在线数据"}`]];
+    $("auditGrid").innerHTML = cells.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+    $("coverageGrid").innerHTML = a.months.map(m => `<div class="month-cover ${m.qtyComplete && m.revenueComplete ? "" : "incomplete"}">${m.month}月<small>${m.rows ? `${m.rows} 行` : "无记录"}</small><small>${m.revenueComplete ? "营收已录" : "营收未齐"}</small></div>`).join("");
+    $("rawCount").textContent = `（${a.rows} 行）`;
+    if ($("rawDetails").open) renderRaw();
+  }
+  function renderRaw() {
+    $("rawBody").innerHTML = rows().map(r => `<tr data-source-row="${r.sourceRow}" data-qty="${r.qty ?? ""}" data-revenue="${r.revenue ?? ""}"><td><a class="source-row-link" href="${MC.SOURCE.url}&range=A${r.sourceRow}:H${r.sourceRow}" target="_blank" rel="noopener noreferrer">${r.sourceRow} ↗</a></td><td>${r.year}</td><td>${r.month}</td><td>MC</td><td>${esc(r.sku)}</td><td>${esc(r.model || "—")}</td><td>${num(r.qty)}</td><td title="底层数值 ${r.revenue ?? "空缺"}">${money(r.revenue, 6)}</td></tr>`).join("");
+  }
 
-setSourceStatus("syncing", "正在同步 Google Sheet 的 Micro Center 数据…");
-syncLiveData();
-window.setInterval(() => syncLiveData(), AUTO_REFRESH_MS);
+  function selectProducts() {
+    const current = MC.byProduct(rows(), state.level).map(p => p.key);
+    const all = [...new Set([...current, ...rows(state.year - 1).map(r => r[state.level])])];
+    if (!all.includes(state.sku)) state.sku = all[0] || null;
+    $("skuSelect").innerHTML = all.map(key => `<option value="${esc(key)}">${esc(key)}</option>`).join("");
+    $("skuSelect").value = state.sku;
+  }
+  function renderAll() {
+    $("yearSelect").innerHTML = years.slice().reverse().map(y => `<option value="${y}">${y}</option>`).join("");
+    $("yearSelect").value = state.year;
+    const present = selected().months.filter(m => m.rows).map(m => m.month);
+    if (state.month === null) state.month = present.at(-1) || 1;
+    $("monthSelect").innerHTML = MC.MONTHS.map(m => `<option value="${m}">${state.year} 年 ${m} 月${present.includes(m) ? "" : "（未录）"}</option>`).join("");
+    $("monthSelect").value = state.month;
+    selectProducts(); renderAnnual(); renderMonthly(); renderMonthSku(); renderMatrix(); renderSkuTrend(); renderSkuSummary(); renderSource();
+  }
+  function validSnapshot(snapshot) {
+    return snapshot?.schema === 2 && snapshot.source?.sheetId === MC.SOURCE.sheetId && snapshot.source?.gid === MC.SOURCE.gid && Number.isFinite(Date.parse(snapshot.fetchedAt)) && Array.isArray(snapshot.records) && snapshot.records.length > 0 && snapshot.records.every(r => r.channel === "MC" && Number.isInteger(r.sourceRow) && Number.isInteger(r.year) && r.month >= 1 && r.month <= 12 && typeof r.sku === "string" && typeof r.baseSku === "string" && (r.qty === null || Number.isFinite(r.qty)) && (r.revenue === null || Number.isFinite(r.revenue)));
+  }
+  function applySnapshot(snapshot, kind) {
+    if (!validSnapshot(snapshot)) throw new Error("数据快照无效。");
+    records = snapshot.records;
+    state.snapshot = snapshot; state.sourceKind = kind;
+    years = [...new Set(records.map(r => r.year))].sort((a, b) => a - b);
+    yearRows = MC.group(records, "year");
+    periodRows = MC.group(records, r => `${r.year}-${r.month}`);
+    periodTotals = new Map([...periodRows].map(([key, items]) => [key, MC.total(items)]));
+    yearTotals = new Map(years.map(year => [year, MC.annual(records, year)]));
+    productMonths = new Map();
+    // An online refresh must never jump from the requested 2025 review to the latest year.
+    if (!years.includes(state.year)) state.year = years.includes(2025) ? 2025 : years.at(-1);
+    renderAll();
+  }
+  function setStatus(kind, text) { $("sourceStatus").className = `status ${kind}`; $("sourceStatus").textContent = text; }
+  async function sync() {
+    if (state.syncing) return;
+    state.syncing = true; $("refreshData").disabled = true; $("refreshData").textContent = "同步中…";
+    setStatus("loading", "正在同步原表");
+    try {
+      const next = await MC_SOURCE.fetchRecords();
+      applySnapshot(next, "live");
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* Storage availability does not change the live result. */ }
+      setStatus("live", "原表同步成功");
+      $("sourceSummary").textContent = `读取于 ${stamp(next.fetchedAt)} · MC ${next.records.length} 行`;
+      $("syncError").hidden = true;
+    } catch (error) {
+      state.sourceKind = "cached";
+      setStatus("cached", records.length ? "在线同步失败 · 显示快照" : "在线同步失败");
+      $("sourceSummary").textContent = records.length ? `快照读取于 ${stamp(state.snapshot.fetchedAt)} · MC ${records.length} 行` : "暂无可用数据";
+      $("syncError").hidden = false;
+      $("syncError").textContent = `本次未取得在线数据。${error.name === "AbortError" ? "连接原表超时。" : error.message} ${records.length ? "下方保留标注时间的最近快照，可点击“刷新在线数据”重试。" : "请稍后重试。"}`;
+      if (records.length) renderSource();
+    } finally { state.syncing = false; $("refreshData").disabled = false; $("refreshData").textContent = "刷新在线数据"; }
+  }
+
+  $("sourceLink").href = MC.SOURCE.url;
+  $("refreshData").addEventListener("click", sync);
+  $("yearSelect").addEventListener("change", event => { state.year = Number(event.target.value); state.month = null; state.monthSearch = state.matrixSearch = ""; $("monthSearch").value = $("matrixSearch").value = ""; renderAll(); });
+  $("monthSelect").addEventListener("change", event => { state.month = Number(event.target.value); renderMonthSku(); });
+  $("monthSearch").addEventListener("input", event => { state.monthSearch = event.target.value.trim(); renderMonthSku(); });
+  $("matrixSearch").addEventListener("input", event => { state.matrixSearch = event.target.value.trim(); renderMatrix(); });
+  $("levelSelect").addEventListener("change", event => { state.level = event.target.value; selectProducts(); renderMatrix(); renderSkuTrend(); renderSkuSummary(); });
+  $("skuSelect").addEventListener("change", event => { state.sku = event.target.value; renderSkuTrend(); });
+  $("rawDetails").addEventListener("toggle", () => { if ($("rawDetails").open) renderRaw(); });
+  document.querySelectorAll("[data-metric]").forEach(button => button.addEventListener("click", () => { state.metric = button.dataset.metric; document.querySelectorAll("[data-metric]").forEach(b => b.setAttribute("aria-pressed", String(b === button))); renderMatrix(); }));
+  function drillMonth(month) { state.month = month; state.monthSearch = ""; $("monthSearch").value = ""; $("monthSelect").value = month; renderMonthSku(); location.hash = "monthSkuSection"; }
+  document.addEventListener("click", event => {
+    const month = event.target.closest("[data-month]");
+    if (month) { drillMonth(Number(month.dataset.month)); return; }
+    const product = event.target.closest("[data-sku]");
+    if (product) { state.level = product.dataset.level; state.sku = product.dataset.sku; $("levelSelect").value = state.level; selectProducts(); renderMatrix(); renderSkuTrend(); renderSkuSummary(); location.hash = "skuTrendSection"; }
+  });
+  document.addEventListener("keydown", event => { const target = event.target.closest("g[data-month]"); if (target && ["Enter", " "].includes(event.key)) { event.preventDefault(); drillMonth(Number(target.dataset.month)); } });
+  $("exportSummary").addEventListener("click", () => {
+    const columns = ["SKU", `${state.year - 1} 同期销量`, `${state.year} 销量`, "销量同比", `${state.year - 1} 同期营收 USD`, `${state.year} 营收 USD`, "营收同比", "ASP USD", "营收占比"];
+    const csvCell = value => { let text = value === null ? "" : String(value); if (typeof value === "string" && /^[=+\-@]/.test(text)) text = "'" + text; return '"' + text.replace(/"/g, '""') + '"'; };
+    const lines = [columns, ...summaryExport.map(r => [r.key, r.pq, r.qty, r.qyoy, r.pr, r.revenue, r.ryoy, r.asp, r.share])];
+    const url = URL.createObjectURL(new Blob(["\ufeff" + lines.map(line => line.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = `Micro-Center-${state.year}-${state.level}-annual.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  const observer = new IntersectionObserver(entries => { for (const entry of entries) if (entry.isIntersecting) document.querySelectorAll(".nav-link").forEach(a => { const active = a.hash === `#${entry.target.id}`; a.classList.toggle("active", active); if (active) a.setAttribute("aria-current", "location"); else a.removeAttribute("aria-current"); }); }, { rootMargin: "-5% 0px -80% 0px" });
+  document.querySelectorAll("main>.section").forEach(section => observer.observe(section));
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(CACHE_KEY)); } catch { /* A previous invalid cache is ignored. */ }
+  const snapshots = [cached, window.MC_DATA].filter(validSnapshot).sort((a, b) => Date.parse(b.fetchedAt) - Date.parse(a.fetchedAt));
+  if (snapshots.length) { applySnapshot(snapshots[0], "cached"); $("sourceSummary").textContent = `当前快照 ${stamp(snapshots[0].fetchedAt)} · 正在核对在线原表`; }
+  sync();
+  setInterval(() => { if (!document.hidden) sync(); }, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - Date.parse(state.snapshot?.fetchedAt || 0) >= 5 * 60 * 1000) sync(); });
+})();

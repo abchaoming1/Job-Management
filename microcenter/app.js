@@ -9,7 +9,7 @@
   const delta = v => `<span class="${v === null ? "neutral" : v >= 0 ? "positive" : "negative"}">${pct(v)}</span>`;
   const CACHE_KEY = "mc-workbook-snapshot-v2";
   const CURRENT_YEAR = new Date().getFullYear();
-  const state = { year: CURRENT_YEAR, month: null, level: "sku", metric: "qty", sku: null, monthSearch: "", matrixSearch: "", snapshot: null, sourceKind: "cached", syncing: false };
+  const state = { year: CURRENT_YEAR, month: null, priorMonth: null, level: "sku", metric: "qty", sku: null, monthSearch: "", matrixSearch: "", snapshot: null, sourceKind: "cached", syncing: false };
   let records = [], years = [], summaryExport = [];
   let yearRows = new Map(), periodRows = new Map(), periodTotals = new Map(), productMonths = new Map(), yearTotals = new Map();
   const rows = (year = state.year, month = null) => (month === null ? yearRows.get(year) : periodRows.get(`${year}-${month}`)) || [];
@@ -108,6 +108,16 @@
     $("previousYearTitle").textContent = `${prior.year} 年 · 上年对比`;
     $("previousYearPeriod").textContent = `${prior.year} 年 ${yearPeriod(prior)} · ${complete ? "全年基准" : "原表未覆盖全年"}`;
     $("previousYearMetrics").innerHTML = mini(`${prior.year} ${complete ? "全年" : "已录"}营收`, prior.revenueKnown ? money(prior.revenue, 2) : "—") + mini(`${prior.year} ${complete ? "全年" : "已录"}销量`, prior.qtyKnown ? num(prior.qty) : "—") + mini("上年平均单价 ASP", money(asp(rows(prior.year)), 2)) + mini("上年完整 SKU", num(prior.skuCount));
+    $("previousMonthlyTitle").textContent = `${prior.year} 年 1–12 月明细`;
+    $("previousMonthlyBody").innerHTML = prior.months.map(t => {
+      const items = rows(prior.year, t.month);
+      return `<tr><td><button class="text-button" data-prior-month="${t.month}" aria-label="查看 ${prior.year} 年 ${t.month} 月每个 SKU 的明细">${prior.year}-${String(t.month).padStart(2, "0")}</button></td><td>${amount(t, "qty")}</td><td>${amount(t, "revenue", 2)}</td><td>${money(asp(items), 2)}</td><td>${prior.revenueComplete && t.revenueComplete ? share(prior.revenue ? t.revenue / prior.revenue : null) : "—"}</td><td>${t.rows ? num(MC.byProduct(items).length) : "—"}</td></tr>`;
+    }).join("");
+    $("previousMonthlyFoot").innerHTML = `<tr><td>${prior.year} 年${complete ? "全年" : "已录"}合计</td><td>${amount(prior, "qty")}</td><td>${amount(prior, "revenue", 2)}</td><td>${money(asp(rows(prior.year)), 2)}</td><td>${prior.revenueComplete && prior.revenue ? "100.0%" : "—"}</td><td>${num(prior.skuCount)} 个 SKU</td></tr>`;
+    if (state.priorMonth === null) state.priorMonth = state.month || 1;
+    $("previousMonthSelect").innerHTML = prior.months.map(t => `<option value="${t.month}">${prior.year} 年 ${t.month} 月${t.rows ? "" : "（未录）"}</option>`).join("");
+    $("previousMonthSelect").value = state.priorMonth;
+    renderPreviousMonthSku();
     $("comparisonCurrentYear").textContent = `${state.year} 累计`;
     $("comparisonPriorYear").textContent = `${prior.year} 同期`;
     $("comparisonBody").innerHTML = [["revenue", "营收 REV", v => money(v, 2)], ["qty", "销量 QTY", num]].map(([metric, label, format]) => {
@@ -116,6 +126,13 @@
       const difference = value !== null && c.prior !== null ? value - c.prior : null;
       return `<tr><td>${label}</td><td>${monthList(c.months)}</td><td class="current-period">${format(value)}</td><td>${format(c.prior)}</td><td>${format(difference)}</td><td>${delta(c.value)}</td></tr>`;
     }).join("");
+  }
+
+  function renderPreviousMonthSku() {
+    const year = state.year - 1, items = rows(year, state.priorMonth), t = MC.total(items), products = MC.byProduct(items);
+    $("previousSkuSummary").textContent = `${year} 年 ${state.priorMonth} 月 · 每个 SKU 明细（${products.length} 个）`;
+    $("previousSkuBody").innerHTML = products.map(p => `<tr><td>${esc(p.key)}</td><td>${esc(p.key.split("-")[0])}</td><td>${amount(p, "qty")}</td><td>${amount(p, "revenue", 2)}</td><td>${money(asp(items.filter(r => r.sku === p.key)), 2)}</td><td>${t.revenueComplete && p.revenueComplete ? share(t.revenue ? p.revenue / t.revenue : null) : "—"}</td></tr>`).join("") || empty(6, "该月原表暂无 MC 数据");
+    $("previousSkuFoot").innerHTML = `<tr><td>${year} 年 ${state.priorMonth} 月合计</td><td>${products.length} 个 SKU</td><td>${amount(t, "qty")}</td><td>${amount(t, "revenue", 2)}</td><td>${money(asp(items), 2)}</td><td>${t.revenueComplete && t.revenue ? "100.0%" : "—"}</td></tr>`;
   }
 
   function renderMonthly() {
@@ -247,8 +264,9 @@
 
   $("sourceLink").href = MC.SOURCE.url;
   $("refreshData").addEventListener("click", sync);
-  $("yearSelect").addEventListener("change", event => { state.year = Number(event.target.value); state.month = null; state.monthSearch = state.matrixSearch = ""; $("monthSearch").value = $("matrixSearch").value = ""; renderAll(); });
+  $("yearSelect").addEventListener("change", event => { state.year = Number(event.target.value); state.month = state.priorMonth = null; state.monthSearch = state.matrixSearch = ""; $("monthSearch").value = $("matrixSearch").value = ""; renderAll(); });
   $("monthSelect").addEventListener("change", event => { state.month = Number(event.target.value); renderMonthSku(); });
+  $("previousMonthSelect").addEventListener("change", event => { state.priorMonth = Number(event.target.value); renderPreviousMonthSku(); });
   $("monthSearch").addEventListener("input", event => { state.monthSearch = event.target.value.trim(); renderMonthSku(); });
   $("matrixSearch").addEventListener("input", event => { state.matrixSearch = event.target.value.trim(); renderMatrix(); });
   $("levelSelect").addEventListener("change", event => { state.level = event.target.value; selectProducts(); renderMatrix(); renderSkuTrend(); renderSkuSummary(); });
@@ -257,6 +275,8 @@
   document.querySelectorAll("[data-metric]").forEach(button => button.addEventListener("click", () => { state.metric = button.dataset.metric; document.querySelectorAll("[data-metric]").forEach(b => b.setAttribute("aria-pressed", String(b === button))); renderMatrix(); }));
   function drillMonth(month) { state.month = month; state.monthSearch = ""; $("monthSearch").value = ""; $("monthSelect").value = month; renderMonthSku(); location.hash = "monthSkuSection"; }
   document.addEventListener("click", event => {
+    const priorMonth = event.target.closest("[data-prior-month]");
+    if (priorMonth) { state.priorMonth = Number(priorMonth.dataset.priorMonth); $("previousMonthSelect").value = state.priorMonth; renderPreviousMonthSku(); $("previousYearSkuDetails").open = true; location.hash = "previousYearSkuDetails"; return; }
     const month = event.target.closest("[data-month]");
     if (month) { drillMonth(Number(month.dataset.month)); return; }
     const product = event.target.closest("[data-sku]");

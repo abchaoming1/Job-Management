@@ -8,12 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20260910-2" />
+  <link rel="stylesheet" href="./styles.css?v=20260910-3" />
   <script defer src="./vendor/jszip.min.js"></script>
   <script defer src="./data-core.js?v=20260910-1"></script>
   <script defer src="./data-source.js?v=20260910-1"></script>
   <script defer src="./data.js?v=20260910-1"></script>
-  <script defer src="./app.js?v=20260910-2"></script>
+  <script defer src="./app.js?v=20260910-3"></script>
 </head>
 <body>
   <a class="skip-link" href="#activeChannelSection">跳到销售概览</a>
@@ -49,7 +49,7 @@
         <div class="period-line"><span id="annualPeriod">正在核对今年数据范围</span><span id="coverageBadge" class="coverage">等待核对</span><span>金额单位 USD</span></div>
         <div id="kpiGrid" class="kpi-grid"></div>
         <div class="insight-grid"><article class="panel conclusion"><p class="eyebrow">核心结论</p><h3 id="conclusionTitle">正在汇总累计表现</h3><p id="conclusionText"></p></article><article class="panel quarter-panel"><div class="panel-head"><h3>季度表现</h3><span class="muted">营收 / 销量</span></div><div id="quarterGrid" class="quarter-grid"></div></article></div>
-        <a class="comparison-jump" href="#previousYearSection">上年全年基准与同期对照 →</a>
+        <a class="comparison-jump" href="#previousYearSection">查看上年全年、每月与 SKU 明细 →</a>
       </section>
 
       <section id="monthlySection" class="section">
@@ -82,9 +82,11 @@
       </section>
 
       <section id="previousYearSection" class="section previous-year-section">
-        <div class="section-head"><div><p class="eyebrow">07 / PREVIOUS YEAR REFERENCE</p><h2 id="previousYearTitle">上年对比</h2><p>上年全年用于了解年度规模；今年的增减，只与上年相同月份比较。</p></div></div>
+        <div class="section-head"><div><p class="eyebrow">07 / PREVIOUS YEAR REFERENCE</p><h2 id="previousYearTitle">上年对比</h2><p>完整保留上年 12 个月及逐 SKU 明细；今年的增减，只与上年相同月份比较。</p></div></div>
         <p class="reference-period" id="previousYearPeriod"></p>
         <div id="previousYearMetrics" class="mini-metrics"></div>
+        <article class="panel table-panel"><div class="panel-head padded"><h3 id="previousMonthlyTitle">上年 1–12 月明细</h3><span class="muted">点击月份，查看当月每个 SKU</span></div><div class="table-wrap"><table id="previousMonthlyTable"><caption class="sr-only">上年完整 12 个月的销量与营收</caption><thead><tr><th>月份 · 点击查看 SKU</th><th>销量 QTY</th><th>营收 REV</th><th>ASP</th><th>年度已录营收占比</th><th>完整 SKU 数</th></tr></thead><tbody id="previousMonthlyBody"></tbody><tfoot id="previousMonthlyFoot"></tfoot></table></div><p class="table-note">独立显示上年 1–12 月，不受今年只更新到几月的影响。未录月份显示 —，不按零计算。</p></article>
+        <details id="previousYearSkuDetails" class="panel table-panel"><summary id="previousSkuSummary">查看上年每月 SKU 明细</summary><div class="panel-head padded"><p class="muted">仅切换上年明细，不改变今年主看板</p><label>上年月份<select id="previousMonthSelect" aria-label="上年 SKU 明细月份"></select></label></div><div class="table-wrap"><table id="previousSkuTable"><caption class="sr-only">上年所选月份的每个 SKU 明细</caption><thead><tr><th>完整 SKU</th><th>基础 SKU</th><th>销量 QTY</th><th>营收 REV</th><th>ASP</th><th>当月营收占比</th></tr></thead><tbody id="previousSkuBody"></tbody><tfoot id="previousSkuFoot"></tfoot></table></div><p class="table-note">同月同 SKU 多行记录合并汇总；保留原始金额精度。</p></details>
         <article class="panel table-panel"><div class="panel-head padded"><h3>同口径累计对照</h3><span class="muted">不把今年累计与去年全年直接计算同比</span></div><div class="table-wrap"><table><caption class="sr-only">本年累计与上年相同月份对比</caption><thead><tr><th>指标</th><th>两年对比月份</th><th id="comparisonCurrentYear">本年累计</th><th id="comparisonPriorYear">上年同期</th><th>较上年增减</th><th>同比</th></tr></thead><tbody id="comparisonBody"></tbody></table></div><p class="table-note">按销量、营收各自已录齐的月份计算；任一对应的上年月份缺失时，不计算该指标同比。</p></article>
       </section>
 

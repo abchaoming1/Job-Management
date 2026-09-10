@@ -53,3 +53,18 @@ test('source snapshot reconciles to independently audited XLSX totals', () => {
   assert.equal(MC.annual(records,2025).skuCount,25);
   assert.ok(Math.abs(MC.comparison(records,2025,'revenue').value-1.8293310294423148)<1e-10);
 });
+test('previous-year reference retains all 12 months and monthly SKU totals', () => {
+  const context={window:{}}; vm.runInNewContext(fs.readFileSync(require.resolve('../microcenter/data.js'),'utf8'),context);
+  const records=context.window.MC_DATA.records;
+  const expected=[[1189,126644.73],[248,25298.16],[690,68880.90],[758,74248.06],[359,34933.63],[293,28846.42],[1070,111002.33],[670,67750.72],[1259,126991.85],[582,58447.34],[612,64858.04],[875,88518.96]];
+  const prior=MC.annual(records,2025);
+  assert.equal(MC.annual(records,2026).revenueMonths.length,8);
+  assert.equal(prior.months.length,12);
+  for (const [i,[qty,revenue]] of expected.entries()) {
+    const month=prior.months[i], products=MC.byProduct(records.filter(r=>r.year===2025&&r.month===i+1));
+    assert.equal(month.qty,qty);
+    assert.equal(Number(month.revenue.toFixed(2)),revenue);
+    assert.equal(products.reduce((s,p)=>s+p.qty,0),qty);
+    assert.ok(Math.abs(products.reduce((s,p)=>s+p.revenue,0)-month.revenue)<1e-7);
+  }
+});

@@ -8,7 +8,8 @@
   const share = v => v === null || !Number.isFinite(v) ? "—" : `${num(v * 100, 1)}%`;
   const delta = v => `<span class="${v === null ? "neutral" : v >= 0 ? "positive" : "negative"}">${pct(v)}</span>`;
   const CACHE_KEY = "mc-workbook-snapshot-v2";
-  const state = { year: 2025, month: null, level: "sku", metric: "qty", sku: null, monthSearch: "", matrixSearch: "", snapshot: null, sourceKind: "cached", syncing: false };
+  const CURRENT_YEAR = new Date().getFullYear();
+  const state = { year: CURRENT_YEAR, month: null, level: "sku", metric: "qty", sku: null, monthSearch: "", matrixSearch: "", snapshot: null, sourceKind: "cached", syncing: false };
   let records = [], years = [], summaryExport = [];
   let yearRows = new Map(), periodRows = new Map(), periodTotals = new Map(), productMonths = new Map(), yearTotals = new Map();
   const rows = (year = state.year, month = null) => (month === null ? yearRows.get(year) : periodRows.get(`${year}-${month}`)) || [];
@@ -72,16 +73,21 @@
     const a = selected(), revYoY = MC.comparison(records, state.year, "revenue"), qtyYoY = MC.comparison(records, state.year, "qty");
     const complete = a.revenueMonths.length === 12 && a.qtyMonths.length === 12;
     $("annualYear").textContent = $("navYear").textContent = state.year;
-    document.title = `Micro Center | ${state.year} 年度销售看板`;
+    const isCurrent = state.year === CURRENT_YEAR;
+    $("annualLabel").textContent = isCurrent ? "今年表现" : "历史年度";
+    $("overviewNavLabel").textContent = isCurrent ? "今年概览" : "历史年度概览";
+    $("overviewEyebrow").textContent = isCurrent ? "CURRENT YEAR / YEAR TO DATE" : "HISTORICAL YEAR REVIEW";
+    $("navPeriodLabel").textContent = isCurrent ? "CURRENT YEAR" : "SELECTED YEAR";
+    document.title = `Micro Center | ${state.year} ${isCurrent ? "今年" : "年度"}销售看板`;
     $("annualPeriod").textContent = `${state.year} 年 ${yearPeriod(a)}`;
     $("coverageBadge").textContent = complete ? "12 / 12 个月已录齐" : `销量 ${a.qtyMonths.length}/12 · 营收 ${a.revenueMonths.length}/12`;
     $("coverageBadge").classList.toggle("incomplete", !complete);
-    const scope = complete ? "全年" : "已录";
+    const scope = complete ? "全年" : "累计";
     const cards = [
-      [`${scope}营收 REV`, a.revenueKnown ? money(a.revenue, 2) : "—", `USD · ${a.rows} 条原表记录`],
+      [`${scope}营收 REV`, a.revenueKnown ? money(a.revenue, 2) : "—", `${state.year} 年 · ${monthList(a.revenueMonths)} · USD`],
       [`${scope}销量 QTY`, a.qtyKnown ? num(a.qty) : "—", `${state.year} 年 · ${monthList(a.qtyMonths)}`],
-      [a.revenueMonths.length === 12 ? "营收年度同比" : "营收已录月份同比", delta(revYoY.value), `对照 ${state.year - 1} 年 ${monthList(revYoY.months)}`],
-      [a.qtyMonths.length === 12 ? "销量年度同比" : "销量已录月份同比", delta(qtyYoY.value), `上年同期 ${num(qtyYoY.prior)} units`],
+      [a.revenueMonths.length === 12 ? "营收年度同比" : "营收同期同比", delta(revYoY.value), `对照 ${state.year - 1} 年 ${monthList(revYoY.months)}`],
+      [a.qtyMonths.length === 12 ? "销量年度同比" : "销量同期同比", delta(qtyYoY.value), `${state.year - 1} 年 ${monthList(qtyYoY.months)} · ${num(qtyYoY.prior)} units`],
       ["平均单价 ASP", money(asp(rows()), 2), "营收 ÷ 对应销量"],
       ["有记录的完整 SKU", num(a.skuCount), `${new Set(rows().map(r => r.baseSku)).size} 个基础 SKU`],
     ];
@@ -94,8 +100,22 @@
       const items = rows().filter(r => Math.ceil(r.month / 3) === q), t = MC.total(items), covered = a.revenueMonths.filter(m => Math.ceil(m / 3) === q).length;
       return `<div class="quarter"><span>Q${q} · ${(q - 1) * 3 + 1}–${q * 3}月</span><strong>${t.revenueKnown ? money(t.revenue) : "—"}</strong><small>${t.qtyKnown ? num(t.qty) + " units" : "未录"}${covered < 3 ? ` · 营收 ${covered}/3 月` : ""}</small></div>`;
     }).join("");
-    const comparisonYears = [...new Set([state.year - 1, state.year, Math.max(...years)])].filter(y => years.includes(y));
-    $("yearComparison").innerHTML = comparisonYears.map(y => { const t = MC.annual(records, y); return `<article class="year-card ${y === state.year ? "selected" : ""}"><span class="year-name">${y}</span><span class="year-period">${yearPeriod(t)}</span><strong>${money(t.revenue)}</strong><span class="year-qty">${num(t.qty)}</span><small>营收 USD</small><small class="right">销量 units</small></article>`; }).join("");
+  }
+
+  function renderPreviousYear() {
+    const prior = MC.annual(records, state.year - 1), current = selected();
+    const complete = prior.revenueMonths.length === 12 && prior.qtyMonths.length === 12;
+    $("previousYearTitle").textContent = `${prior.year} 年 · 上年对比`;
+    $("previousYearPeriod").textContent = `${prior.year} 年 ${yearPeriod(prior)} · ${complete ? "全年基准" : "原表未覆盖全年"}`;
+    $("previousYearMetrics").innerHTML = mini(`${prior.year} ${complete ? "全年" : "已录"}营收`, prior.revenueKnown ? money(prior.revenue, 2) : "—") + mini(`${prior.year} ${complete ? "全年" : "已录"}销量`, prior.qtyKnown ? num(prior.qty) : "—") + mini("上年平均单价 ASP", money(asp(rows(prior.year)), 2)) + mini("上年完整 SKU", num(prior.skuCount));
+    $("comparisonCurrentYear").textContent = `${state.year} 累计`;
+    $("comparisonPriorYear").textContent = `${prior.year} 同期`;
+    $("comparisonBody").innerHTML = [["revenue", "营收 REV", v => money(v, 2)], ["qty", "销量 QTY", num]].map(([metric, label, format]) => {
+      const c = MC.comparison(records, state.year, metric);
+      const value = c.months.length ? current.months.filter(m => c.months.includes(m.month)).reduce((sum, m) => sum + m[metric], 0) : null;
+      const difference = value !== null && c.prior !== null ? value - c.prior : null;
+      return `<tr><td>${label}</td><td>${monthList(c.months)}</td><td class="current-period">${format(value)}</td><td>${format(c.prior)}</td><td>${format(difference)}</td><td>${delta(c.value)}</td></tr>`;
+    }).join("");
   }
 
   function renderMonthly() {
@@ -178,13 +198,13 @@
     $("skuSelect").value = state.sku;
   }
   function renderAll() {
-    $("yearSelect").innerHTML = years.slice().reverse().map(y => `<option value="${y}">${y}</option>`).join("");
+    $("yearSelect").innerHTML = years.slice().reverse().map(y => `<option value="${y}">${y}${y === CURRENT_YEAR ? " · 今年" : y === CURRENT_YEAR - 1 ? " · 上年" : ""}</option>`).join("");
     $("yearSelect").value = state.year;
     const present = selected().months.filter(m => m.rows).map(m => m.month);
     if (state.month === null) state.month = present.at(-1) || 1;
     $("monthSelect").innerHTML = MC.MONTHS.map(m => `<option value="${m}">${state.year} 年 ${m} 月${present.includes(m) ? "" : "（未录）"}</option>`).join("");
     $("monthSelect").value = state.month;
-    selectProducts(); renderAnnual(); renderMonthly(); renderMonthSku(); renderMatrix(); renderSkuTrend(); renderSkuSummary(); renderSource();
+    selectProducts(); renderAnnual(); renderMonthly(); renderMonthSku(); renderMatrix(); renderSkuTrend(); renderSkuSummary(); renderPreviousYear(); renderSource();
   }
   function validSnapshot(snapshot) {
     return snapshot?.schema === 2 && snapshot.source?.sheetId === MC.SOURCE.sheetId && snapshot.source?.gid === MC.SOURCE.gid && Number.isFinite(Date.parse(snapshot.fetchedAt)) && Array.isArray(snapshot.records) && snapshot.records.length > 0 && snapshot.records.every(r => r.channel === "MC" && Number.isInteger(r.sourceRow) && Number.isInteger(r.year) && r.month >= 1 && r.month <= 12 && typeof r.sku === "string" && typeof r.baseSku === "string" && (r.qty === null || Number.isFinite(r.qty)) && (r.revenue === null || Number.isFinite(r.revenue)));
@@ -199,8 +219,8 @@
     periodTotals = new Map([...periodRows].map(([key, items]) => [key, MC.total(items)]));
     yearTotals = new Map(years.map(year => [year, MC.annual(records, year)]));
     productMonths = new Map();
-    // An online refresh must never jump from the requested 2025 review to the latest year.
-    if (!years.includes(state.year)) state.year = years.includes(2025) ? 2025 : years.at(-1);
+    // Start with this calendar year, but preserve a user's historical selection on refresh.
+    if (!years.includes(state.year)) state.year = years.includes(CURRENT_YEAR) ? CURRENT_YEAR : years.at(-1);
     renderAll();
   }
   function setStatus(kind, text) { $("sourceStatus").className = `status ${kind}`; $("sourceStatus").textContent = text; }

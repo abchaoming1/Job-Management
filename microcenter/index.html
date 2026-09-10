@@ -3,40 +3,41 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Micro Center | 2025 年度销售看板</title>
-  <meta name="description" content="Micro Center 年度销售、月度趋势与逐 SKU 明细。默认呈现 2025 全年，自动同步 Google Sheet。" />
+  <title>Micro Center | 今年销售看板</title>
+  <meta name="description" content="Micro Center 今年累计销售、月度趋势与逐 SKU 明细。上年全年独立作为对比，自动同步 Google Sheet。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20260910-1" />
+  <link rel="stylesheet" href="./styles.css?v=20260910-2" />
   <script defer src="./vendor/jszip.min.js"></script>
   <script defer src="./data-core.js?v=20260910-1"></script>
   <script defer src="./data-source.js?v=20260910-1"></script>
   <script defer src="./data.js?v=20260910-1"></script>
-  <script defer src="./app.js?v=20260910-1"></script>
+  <script defer src="./app.js?v=20260910-2"></script>
 </head>
 <body>
-  <a class="skip-link" href="#activeChannelSection">跳到年度概览</a>
+  <a class="skip-link" href="#activeChannelSection">跳到销售概览</a>
   <div class="layout-shell">
     <aside class="page-nav">
       <a class="brand" href="../"><span class="brand-mark">MC</span><span>SHOKZ<small>CHANNEL ANALYTICS</small></span></a>
       <div class="channel-card"><span class="eyebrow">当前分析渠道</span><strong>Micro Center</strong><span class="channel-tag">MC · 美国渠道</span></div>
       <nav aria-label="销售分析导航">
         <p class="nav-label">销售分析</p>
-        <a class="nav-link active" href="#activeChannelSection"><span>01</span>年度概览</a>
+        <a class="nav-link active" href="#activeChannelSection"><span>01</span><b id="overviewNavLabel">今年概览</b></a>
         <a class="nav-link" href="#monthlySection"><span>02</span>月度总览</a>
         <a class="nav-link" href="#monthSkuSection"><span>03</span>每月 SKU 明细</a>
         <a class="nav-link" href="#matrixSection"><span>04</span>SKU 月度矩阵</a>
         <a class="nav-link" href="#skuTrendSection"><span>05</span>单 SKU 趋势</a>
         <a class="nav-link" href="#skuSummarySection"><span>06</span>SKU 年度汇总</a>
-        <a class="nav-link" href="#sourceSection"><span>07</span>数据来源与核对</a>
+        <a class="nav-link" href="#previousYearSection"><span>07</span>上年对比</a>
+        <a class="nav-link" href="#sourceSection"><span>08</span>数据来源与核对</a>
       </nav>
-      <div class="nav-footer"><span class="eyebrow">ANNUAL REVIEW</span><strong id="navYear">2025</strong><p>全年数据优先<br />向下追溯每个月、每个 SKU</p><a href="../">← 返回工作台</a></div>
+      <div class="nav-footer"><span class="eyebrow" id="navPeriodLabel">CURRENT YEAR</span><strong id="navYear">—</strong><p>今年表现为主，上年独立对比<br />向下追溯每个月、每个 SKU</p><a href="../">← 返回工作台</a></div>
     </aside>
 
     <main>
       <header class="page-header">
-        <div><p class="eyebrow">MICRO CENTER SALES DASHBOARD</p><h1>Micro Center 渠道销售分析</h1><p class="muted">年度表现、月度变化与 SKU 明细</p></div>
+        <div><p class="eyebrow">MICRO CENTER SALES DASHBOARD</p><h1>Micro Center 渠道销售分析</h1><p class="muted">今年累计 · 月度变化 · SKU 表现，上年全年独立对比</p></div>
         <div class="header-actions"><button type="button" id="refreshData" class="primary">刷新在线数据</button><a class="button" id="sourceLink" target="_blank" rel="noopener noreferrer">打开原表 ↗</a></div>
       </header>
       <div class="sync-strip" aria-live="polite"><span class="status loading" id="sourceStatus">正在同步原表</span><span id="sourceSummary">正在读取 Micro Center 数据…</span><span class="sync-frequency">页面打开时每 5 分钟同步</span></div>
@@ -44,16 +45,16 @@
       <noscript><p class="error-note">请启用 JavaScript 以读取销售看板。</p></noscript>
 
       <section id="activeChannelSection" class="section">
-        <div class="annual-heading"><div><p class="eyebrow">YEAR IN REVIEW</p><h2><span id="annualYear">2025</span><span class="year-label">年度概览</span></h2></div><label class="year-control">分析年份<select id="yearSelect"><option value="2025">2025</option></select></label></div>
-        <div class="period-line"><span id="annualPeriod">2025 年 1–12 月</span><span id="coverageBadge" class="coverage">等待核对</span><span>金额单位 USD</span></div>
+        <div class="annual-heading"><div><p class="eyebrow" id="overviewEyebrow">CURRENT YEAR / YEAR TO DATE</p><h2><span id="annualYear">—</span><span class="year-label" id="annualLabel">今年表现</span></h2></div><label class="year-control">分析年份<select id="yearSelect"><option>正在读取</option></select></label></div>
+        <div class="period-line"><span id="annualPeriod">正在核对今年数据范围</span><span id="coverageBadge" class="coverage">等待核对</span><span>金额单位 USD</span></div>
         <div id="kpiGrid" class="kpi-grid"></div>
-        <div class="insight-grid"><article class="panel conclusion"><p class="eyebrow">核心结论</p><h3 id="conclusionTitle">正在汇总全年表现</h3><p id="conclusionText"></p></article><article class="panel quarter-panel"><div class="panel-head"><h3>季度表现</h3><span class="muted">营收 / 销量</span></div><div id="quarterGrid" class="quarter-grid"></div></article></div>
-        <div class="section-head compact"><h3>年度汇总对比</h3><p>各年独立汇总；未完整年份明确标注覆盖范围</p></div><div id="yearComparison" class="year-comparison"></div>
+        <div class="insight-grid"><article class="panel conclusion"><p class="eyebrow">核心结论</p><h3 id="conclusionTitle">正在汇总累计表现</h3><p id="conclusionText"></p></article><article class="panel quarter-panel"><div class="panel-head"><h3>季度表现</h3><span class="muted">营收 / 销量</span></div><div id="quarterGrid" class="quarter-grid"></div></article></div>
+        <a class="comparison-jump" href="#previousYearSection">上年全年基准与同期对照 →</a>
       </section>
 
       <section id="monthlySection" class="section">
         <div class="section-head"><div><p class="eyebrow">02 / MONTHLY PERFORMANCE</p><h2>月度总览</h2><p>按同月对照上年，点击月份可查看当月 SKU。</p></div></div>
-        <div class="two-charts"><article class="panel"><div class="panel-head"><h3>月度营收</h3><div class="legend"><span><i class="teal"></i><b class="selected-year">2025</b></span><span><i class="sand"></i><b class="prior-year">2024</b></span></div></div><div class="chart" id="revenueChart"></div></article><article class="panel"><div class="panel-head"><h3>月度销量</h3><div class="legend"><span><i class="teal"></i><b class="selected-year">2025</b></span><span><i class="sand"></i><b class="prior-year">2024</b></span></div></div><div class="chart" id="qtyChart"></div></article></div>
+        <div class="two-charts"><article class="panel"><div class="panel-head"><h3>月度营收</h3><div class="legend"><span><i class="teal"></i><b class="selected-year">本年</b></span><span><i class="sand"></i><b class="prior-year">上年</b></span></div></div><div class="chart" id="revenueChart"></div></article><article class="panel"><div class="panel-head"><h3>月度销量</h3><div class="legend"><span><i class="teal"></i><b class="selected-year">本年</b></span><span><i class="sand"></i><b class="prior-year">上年</b></span></div></div><div class="chart" id="qtyChart"></div></article></div>
         <article class="panel table-panel"><div class="table-wrap"><table id="monthlyTable"><caption class="sr-only">所选年份各月营收与销量</caption><thead><tr><th>月份</th><th>销量 QTY</th><th>营收 REV</th><th>销量环比</th><th>营收环比</th><th>销量同比</th><th>营收同比</th><th>ASP</th><th>营收 Top SKU</th></tr></thead><tbody id="monthlyBody"></tbody><tfoot id="monthlyFoot"></tfoot></table></div></article>
       </section>
 
@@ -80,11 +81,18 @@
         <article class="panel table-panel"><div class="table-wrap"><table id="skuSummaryTable"><caption class="sr-only">SKU 年度汇总与同比</caption><thead><tr><th>SKU</th><th>上年同期销量</th><th>本年销量</th><th>销量同比</th><th>上年同期营收</th><th>本年营收</th><th>营收同比</th><th>ASP</th><th>营收占比</th></tr></thead><tbody id="skuSummaryBody"></tbody><tfoot id="skuSummaryFoot"></tfoot></table></div></article>
       </section>
 
+      <section id="previousYearSection" class="section previous-year-section">
+        <div class="section-head"><div><p class="eyebrow">07 / PREVIOUS YEAR REFERENCE</p><h2 id="previousYearTitle">上年对比</h2><p>上年全年用于了解年度规模；今年的增减，只与上年相同月份比较。</p></div></div>
+        <p class="reference-period" id="previousYearPeriod"></p>
+        <div id="previousYearMetrics" class="mini-metrics"></div>
+        <article class="panel table-panel"><div class="panel-head padded"><h3>同口径累计对照</h3><span class="muted">不把今年累计与去年全年直接计算同比</span></div><div class="table-wrap"><table><caption class="sr-only">本年累计与上年相同月份对比</caption><thead><tr><th>指标</th><th>两年对比月份</th><th id="comparisonCurrentYear">本年累计</th><th id="comparisonPriorYear">上年同期</th><th>较上年增减</th><th>同比</th></tr></thead><tbody id="comparisonBody"></tbody></table></div><p class="table-note">按销量、营收各自已录齐的月份计算；任一对应的上年月份缺失时，不计算该指标同比。</p></article>
+      </section>
+
       <section id="sourceSection" class="section">
-        <div class="section-head"><div><p class="eyebrow">07 / SOURCE & RECONCILIATION</p><h2>数据来源与核对</h2><p>仅汇总原表渠道字段为 MC 的明细。同一 SKU 在同月的多行记录逐行累加。</p></div></div>
+        <div class="section-head"><div><p class="eyebrow">08 / SOURCE & RECONCILIATION</p><h2>数据来源与核对</h2><p>仅汇总原表渠道字段为 MC 的明细。同一 SKU 在同月的多行记录逐行累加。</p></div></div>
         <article class="panel"><dl class="source-grid" id="auditGrid"></dl><div id="coverageGrid" class="coverage-grid"></div><p class="table-note">营收使用原表 REV 的底层数值，不按显示值预先取整。同比按两年相同月份计算；上年无基数时显示 —。基础 SKU 使用完整 SKU 的首段，例如 S821-MN-BK-US → S821。</p><details id="rawDetails"><summary>查看所选年份原表明细 <span id="rawCount"></span></summary><div class="table-wrap raw-wrap"><table><caption class="sr-only">原表 MC 逐行明细</caption><thead><tr><th>原表行号</th><th>年份</th><th>月份</th><th>渠道</th><th>SKU</th><th>原表 Model</th><th>QTY</th><th>REV</th></tr></thead><tbody id="rawBody"></tbody></table></div></details></article>
       </section>
-      <footer><span>SHOKZ / MICRO CENTER</span><span>年度 · 月度 · SKU</span><a href="#activeChannelSection">回到年度概览 ↑</a></footer>
+      <footer><span>SHOKZ / MICRO CENTER</span><span>今年 · 月度 · SKU · 上年对比</span><a href="#activeChannelSection">回到销售概览 ↑</a></footer>
     </main>
   </div>
 </body>
